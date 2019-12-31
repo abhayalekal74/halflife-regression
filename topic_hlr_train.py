@@ -138,7 +138,7 @@ class HLRModel(object):
 			for inst in tqdm(trainset, desc="Training Instance "):
 				self.train_update(inst, validationset)
 			with open(sys.argv[2], 'a') as f:
-				f.write("\n\nEpoch {}\n".format(i))
+				f.write("\n\nEpoch {}: val_loss {}\n".format(i, self.min_val_loss))
 				f.write(json.dumps(self.best_weights))
 			
 
