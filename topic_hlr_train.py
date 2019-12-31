@@ -15,6 +15,7 @@ from collections import defaultdict, namedtuple
 import sys
 from tqdm import tqdm
 import json
+import argparse
 
 MIN_REC = 0.0001
 MAX_REC = 0.9999
@@ -71,7 +72,7 @@ def get_instances_from_data(data):
 	splitpoint = int(0.9 * len(instances))
 	trainset = instances[:splitpoint]
 	rest = instances[splitpoint:]
-	rest_split = int(0.9 * len(rest))
+	rest_split = int(0.7 * len(rest))
 	testset = rest[:rest_split]
 	validationset = rest[rest_split:]
 	return trainset, testset, validationset 
@@ -80,9 +81,10 @@ def get_instances_from_data(data):
 class HLRModel(object):
 	def __init__(self, initial_weights=None, lrate=.001, hlwt=.01, l2wt=.1, sigma=1.):
 		self.weights = defaultdict(float)
+		self.best_weights = defaultdict(float)
 		if initial_weights is not None:
 			self.weights.update(initial_weights)
-		self.best_weights = None
+			self.best_weights.update(initial_weights)
 		self.fcounts = defaultdict(int)
 		self.lrate = lrate
 		self.hlwt = hlwt
@@ -133,12 +135,12 @@ class HLRModel(object):
 			self.best_weights = self.weights
 
 	
-	def train(self, trainset, validationset, epochs=20):
+	def train(self, trainset, validationset, save_weights_dest, epochs=5):
 		for i in tqdm(range(epochs), desc="Epoch "):
 			for inst in tqdm(trainset, desc="Training Instance "):
 				self.train_update(inst, validationset)
-			with open(sys.argv[2], 'a') as f:
-				f.write("\n\nEpoch {}: val_loss {}\n".format(i, self.min_val_loss))
+			with open(save_weights_dest, 'w') as f:
+				print("\n\nEpoch {}: val_loss {}\n".format(i, self.min_val_loss))
 				f.write(json.dumps(self.best_weights))
 			
 
@@ -157,8 +159,22 @@ class HLRModel(object):
 			print ("actual_rec {}, pred_rec {}, actual_hl {}, pred_hl {}, sl_rec {}, sl_hl {}".format(inst.recall, recall, inst.hl, hl, sl_recall, sl_hl))
 
 
+def parse_args():
+	parser = argparse.ArgumentParser()
+	parser.add_argument('--weights', dest='weights', help="JSON file containing trained weights")
+	parser.add_argument('--out', dest='out', help='File to save the weights in')
+	parser.add_argument('--epochs', dest='epochs', type=int, default=5, help='Epochs to train')
+	parser.add_argument('--train-further', dest='train_further', type=boolean, default=False, action="store_true" help='If the weights should be trained further')
+	parser.add_argument('attempts_file', help='CSV file containing attempts data')
+	args = parser.parse_args()
+	if not args.attempts_file:
+		sys.exit('Please pass the attempts file')
+	return args
+
+
 if __name__=='__main__':
-	df = pd.read_csv(sys.argv[1])
+	args = parse_args()
+	df = pd.read_csv(args.attempts_file)
 	df['hour'] = df.apply(lambda row: dt.fromtimestamp(row['attempttime']/1000).hour, axis=1) 
 	df['minute'] = df.apply(lambda row: dt.fromtimestamp(row['attempttime']/1000).minute, axis=1)
 	df = df.sort_values(by=['attempttime'], ascending=True)
@@ -166,7 +182,13 @@ if __name__=='__main__':
 	data = read_data(df)
 	trainset, testset, validationset = get_instances_from_data(data)
 	
-	model = HLRModel()
-	model.train(trainset, validationset)
+	if args.weights:
+		saved_weights = json.load(args.weights)
+
+	model = HLRModel(initial_weights=saved_weights)
+	
+	if saved_weights and args.train_further:
+		model.train(trainset, validationset, args.out, pochs=args.epochs)
+
 	model.eval(testset)
 
