@@ -229,7 +229,7 @@ if __name__=='__main__':
 	trainset, testset, validationset = get_instances_from_data(data)
 	
 	if args.weights:
-		saved_weights = json.load(args.weights)
+		saved_weights = json.load(open(args.weights), 'r')
 		model = HLRModel(initial_weights=saved_weights)
 	else:
 		saved_weights = None
