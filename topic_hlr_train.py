@@ -163,6 +163,7 @@ class HLRModel(object):
 		if val_loss < self.min_val_loss:
 			self.min_val_loss = val_loss
 			self.best_weights = self.weights
+		print ("rec %.2f, hl %.2f, val_loss %.3f (min %.3f)" % (recall, hl, val_loss, self.min_val_loss))
 
 	
 	def train(self, trainset, validationset, save_weights_dest, epochs=5):
