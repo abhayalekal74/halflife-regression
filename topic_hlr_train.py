@@ -38,15 +38,43 @@ def halflife_clip(halflife):
 	return min(max(MIN_HL, halflife), MAX_HL)
 
 
+def mae(l1, l2):
+	# mean average error
+	return mean([abs(l1[i] - l2[i]) for i in range(len(l1))])
+
+
+def mean(lst):
+	# the average of a list
+	return float(sum(lst)) / len(lst)
+
+
+def spearmanr(l1, l2):
+	# spearman rank correlation
+	m1 = mean(l1)
+	m2 = mean(l2)
+	num = 0.
+	d1 = 0.
+	d2 = 0.
+	for i in range(len(l1)):
+		num += (l1[i]-m1) * (l2[i]-m2)
+		d1 += (l1[i]-m1) ** 2
+		d2 += (l2[i]-m2) ** 2
+	try:
+		return num/math.sqrt(d1 * d2)
+	except ZeroDivisionError:
+		return -1
+
+
 def read_data(df):
 	print ("Reading data...")
 	data = list()
-	for groupid, groupdf in df.groupby(['userid', 'examid']):
+	for groupid, groupdf in df.groupby(['userid', 'examid', 'categoryid']):
 		prev_session_end = None
 		userid = groupid[0]
 		examid = groupid[1]
-		for sessionid, session_group in groupdf.groupby(['hour', 'minute']):
-			session_name = "{}-{}".format(sessionid[0], sessionid[1])
+		categoryid = groupid[2]
+		for sessionid, session_group in groupdf.groupby(['date']):
+			session_name = "{}".format(sessionid)
 			total_attempts = len(session_group)
 			correct_df = session_group[session_group['iscorrect'] == True]
 			correct_attempts = len(correct_df)
@@ -55,19 +83,21 @@ def read_data(df):
 			lag_time = 0 if not prev_session_end else to_minutes(session_begin_time - prev_session_end)
 			actual_halflife = MIN_HL if lag_time == 0 else halflife_clip(-lag_time / math.log(actual_recall, 2))
 			prev_session_end = session_group['attempttime'].max()
-			data.append([userid, examid, session_name, prev_session_end, actual_recall, lag_time, actual_halflife, total_attempts, correct_attempts])
+			data.append([userid, examid, categoryid, session_name, prev_session_end, actual_recall, lag_time, actual_halflife, total_attempts, correct_attempts])
 	return data
 
 
 def get_instances_from_data(data):
 	instances = list()
 	for datum in data:
-		recall = datum[4]
-		hl = datum[6]
-		time_delta = datum[5]
+		recall = datum[5]
+		hl = datum[7]
+		time_delta = datum[6]
 		feature_vector = list()
 		feature_vector.append((sys.intern('right'), math.sqrt(1 + datum[-1])))
 		feature_vector.append((sys.intern('wrong'), math.sqrt(1 + datum[-2] - datum[-1])))
+		feature_vector.append((sys.intern(datum[1]), 1.))
+		feature_vector.append((sys.intern(str(datum[2])), 1.))
 		instances.append(Instance(recall, hl, time_delta, feature_vector))
 	splitpoint = int(0.9 * len(instances))
 	trainset = instances[:splitpoint]
@@ -142,7 +172,6 @@ class HLRModel(object):
 			with open(save_weights_dest, 'w') as f:
 				print("\n\nEpoch {}: val_loss {}\n".format(i, self.min_val_loss))
 				f.write(json.dumps(self.best_weights))
-			
 
 	
 	def losses(self, inst):
@@ -154,17 +183,33 @@ class HLRModel(object):
 
 	def eval(self, testset):
 		print ("Predicting...")
+		results = {'recall': [], 'hl': [], 'pred_recall': [], 'pred_hl': [], 'sl_recall': [], 'sl_hl': []}
 		for inst in testset:
 			sl_recall, sl_hl, recall, hl = self.losses(inst)
-			print ("actual_rec {}, pred_rec {}, actual_hl {}, pred_hl {}, sl_rec {}, sl_hl {}".format(inst.recall, recall, inst.hl, hl, sl_recall, sl_hl))
+			results['recall'].append(inst.recall)	 # ground truth
+			results['hl'].append(inst.hl)
+			results['pred_recall'].append(recall)		 # predictions
+			results['pred_hl'].append(hl)
+			results['sl_recall'].append(sl_recall)	  # loss function values
+			results['sl_hl'].append(sl_hl)
+			#print ("actual_rec {}, pred_rec {}, actual_hl {}, pred_hl {}, sl_rec {}, sl_hl {}".format(inst.recall, recall, inst.hl, hl, sl_recall, sl_hl))
+		mae_recall = mae(results['recall'], results['pred_recall'])
+		mae_hl = mae(results['hl'], results['pred_hl'])
+		cor_recall = spearmanr(results['recall'], results['pred_recall'])
+		cor_hl = spearmanr(results['hl'], results['pred_hl'])
+		total_sl_recall = sum(results['sl_recall'])
+		total_sl_hl = sum(results['sl_hl'])
+		total_l2 = sum([x ** 2 for x in self.weights.values()])
+		total_loss = total_sl_recall + self.hlwt * total_sl_hl + self.l2wt * total_l2
+		print('%.1f (recall=%.1f, hl=%.1f, l2=%.1f)\tmae(recall)=%.3f\tcor(recall)=%.3f\tmae(hl)=%.3f\tcor(hl)=%.3f\n' % (total_loss, total_sl_recall, self.hlwt * total_sl_hl, self.l2wt * total_l2, mae_recall, cor_recall, mae_hl, cor_hl))
 
 
 def parse_args():
 	parser = argparse.ArgumentParser()
 	parser.add_argument('--weights', dest='weights', help="JSON file containing trained weights")
-	parser.add_argument('--out', dest='out', help='File to save the weights in')
-	parser.add_argument('--epochs', dest='epochs', type=int, default=5, help='Epochs to train')
-	parser.add_argument('--train-further', dest='train_further', type=boolean, default=False, action="store_true" help='If the weights should be trained further')
+	parser.add_argument('--save-weights', dest='save_weights', default="saved_weights.csv", help='File to save the weights in')
+	parser.add_argument('--epochs', dest='epochs', type=int, default=1, help='Epochs to train')
+	parser.add_argument('--train-further', dest='train_further', default=False, action="store_true", help='If the weights should be trained further')
 	parser.add_argument('attempts_file', help='CSV file containing attempts data')
 	args = parser.parse_args()
 	if not args.attempts_file:
@@ -175,8 +220,8 @@ def parse_args():
 if __name__=='__main__':
 	args = parse_args()
 	df = pd.read_csv(args.attempts_file)
-	df['hour'] = df.apply(lambda row: dt.fromtimestamp(row['attempttime']/1000).hour, axis=1) 
-	df['minute'] = df.apply(lambda row: dt.fromtimestamp(row['attempttime']/1000).minute, axis=1)
+	df['date'] = df.apply(lambda row: dt.fromtimestamp(row['attempttime']/1000).date(), axis=1) 
+	df['hour'] = df.apply(lambda row: dt.fromtimestamp(row['attempttime']/1000).hour, axis=1)
 	df = df.sort_values(by=['attempttime'], ascending=True)
 
 	data = read_data(df)
@@ -184,11 +229,13 @@ if __name__=='__main__':
 	
 	if args.weights:
 		saved_weights = json.load(args.weights)
+		model = HLRModel(initial_weights=saved_weights)
+	else:
+		saved_weights = None
+		model = HLRModel()
 
-	model = HLRModel(initial_weights=saved_weights)
 	
-	if saved_weights and args.train_further:
-		model.train(trainset, validationset, args.out, pochs=args.epochs)
+	if not saved_weights or (saved_weights is not None and args.train_further):
+		model.train(trainset, validationset, args.save_weights, epochs=args.epochs)
 
 	model.eval(testset)
-
