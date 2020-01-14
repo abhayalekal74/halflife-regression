@@ -201,7 +201,7 @@ class HLRModel(object):
 		total_sl_hl = sum(results['sl_hl'])
 		total_l2 = sum([x ** 2 for x in self.weights.values()])
 		total_loss = total_sl_recall + self.hlwt * total_sl_hl + self.l2wt * total_l2
-		print('%.1f (recall=%.1f, hl=%.1f, l2=%.1f)\tmae(recall)=%.3f\tcor(recall)=%.3f\tmae(hl)=%.3f\tcor(hl)=%.3f\n' % (total_loss, total_sl_recall, self.hlwt * total_sl_hl, self.l2wt * total_l2, mae_recall, cor_recall, mae_hl, cor_hl))
+		print('total_loss=%.1f (recall=%.1f, hl=%.1f, l2=%.1f)\tmae(recall)=%.3f\tcor(recall)=%.3f\tmae(hl)=%.3f\tcor(hl)=%.3f\n' % (total_loss, total_sl_recall, self.hlwt * total_sl_hl, self.l2wt * total_l2, mae_recall, cor_recall, mae_hl, cor_hl))
 
 
 def parse_args():
