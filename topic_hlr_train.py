@@ -20,9 +20,9 @@ import argparse
 
 MIN_REC = 0.0001
 MAX_REC = 0.9999
-MIN_HL = 1 #sec
-MAX_HL = 86400 #sec
-MIN_WEIGHT = 0.1
+MIN_HL = 0.0001 #min
+MAX_HL = 180.0 #min
+MIN_WEIGHT = 0.0001
 LN2 = math.log(2.)
 
 Instance = namedtuple('Instance', ['recall', 'hl', 'time_delta', 'feature_vector'])
@@ -30,6 +30,10 @@ Instance = namedtuple('Instance', ['recall', 'hl', 'time_delta', 'feature_vector
 
 def to_days(millis):
 	return (millis / 1000.0) / 86400.0
+
+
+def to_minutes(millis):
+	return (millis / 1000.0) / 60.0
 
 
 def recall_clip(recall):
@@ -95,7 +99,7 @@ def read_data(df):
 			actual_recall = recall_clip(float(correct_df['difficulty'].sum()) / session_group['difficulty'].sum())
 			session_begin_time = session_group['attempttime'].min()
 			#time_delta = float('inf') if not prev_session_end else to_days(session_begin_time - prev_session_end)
-			time_delta = float('inf') if not prev_session_end else (session_begin_time - prev_session_end) / 1000.0
+			time_delta = float('inf') if not prev_session_end else to_minutes(session_begin_time - prev_session_end)
 			if time_delta != float('inf'):
 				has_practiced_before += 1 
 			actual_halflife = MAX_HL if time_delta == float('inf') else halflife_clip(-time_delta / math.log(actual_recall, 2))
@@ -117,16 +121,14 @@ def read_data(df):
 
 	splitpoint = int(0.9 * len(instances))
 	trainset = instances[:splitpoint]
-	rest = instances[splitpoint:]
-	rest_split = int(0.7 * len(rest))
-	testset = rest[:rest_split]
-	validationset = rest[rest_split:]
-	return trainset, testset, validationset 
+	testset = instances[splitpoint:]
+	return trainset, testset
 
 
 class HLRModel(object):
-	def __init__(self, initial_weights=None, lrate=.001, hlwt=.01, l2wt=.1, sigma=1.):
-		self.weights = defaultdict(lambda: np.random.uniform())
+	# Default lrate=.001, hlwt=.01, l2wt=.1, sigma=1.
+	def __init__(self, initial_weights=None, lrate=.001, hlwt=.01, l2wt=.1, sigma=1.): 
+		self.weights = defaultdict(float)
 		self.best_weights = defaultdict(float)
 		if initial_weights is not None:
 			self.weights.update(initial_weights)
@@ -136,12 +138,13 @@ class HLRModel(object):
 		self.hlwt = hlwt
 		self.l2wt = l2wt
 		self.sigma = sigma
-		self.min_val_loss = float("inf") 
+		self.min_loss = float("inf") 
 
 
 	def halflife(self, inst, base):
 		# h = 2 ** (theta . x)
 		theta_x_dot_product = sum([self.weights[feature] * value for (feature, value) in inst.feature_vector])
+		print ("halflife_no_clip", base ** theta_x_dot_product)
 		return halflife_clip(base ** theta_x_dot_product) 
 
 
@@ -151,15 +154,15 @@ class HLRModel(object):
 		return recall_clip(recall), halflife
 
 
-	def get_validation_loss(self, validationset):
-		validation_loss = 0.0
-		for inst in validationset:
+	def get_total_loss(self, dataset):
+		total_loss = 0.0
+		for inst in dataset:
 			slr, slh, recall, hl = self.losses(inst)
-			validation_loss += slr + slh
-		return validation_loss
+			total_loss += slr + slh
+		return total_loss
 
 
-	def train_update(self, inst, validationset):
+	def train_update(self, inst, trainset):
 		base = 2.
 		recall, hl = self.predict(inst, base)
 		dl_recall_dw = 2. * (recall - inst.recall) * (LN2 ** 2) * recall * (inst.time_delta / hl)
@@ -175,19 +178,20 @@ class HLRModel(object):
 
 			# increment feature count for learning rate
 			self.fcounts[feature] += 1
-		val_loss = self.get_validation_loss(validationset)			
-		if val_loss < self.min_val_loss:
-			self.min_val_loss = val_loss
+			print ("\nweights", self.weights)
+		train_loss = self.get_total_loss(trainset)			
+		if train_loss < self.min_loss:
+			self.min_loss = train_loss
 			self.best_weights.update(self.weights)
-		print ("train_update rec %.2f, hl %.2f, val_loss %.3f (min %.3f)" % (recall, hl, val_loss, self.min_val_loss))
+		print ("train_update rec %.2f, hl %.2f, train_loss %.3f (min %.3f)" % (recall, hl, train_loss, self.min_loss))
 
 	
-	def train(self, trainset, validationset, save_weights_dest, epochs=5):
+	def train(self, trainset, save_weights_dest, epochs=5):
 		for i in tqdm(range(epochs), desc="Epoch "):
 			for inst in tqdm(trainset, desc="Training Instance "):
-				self.train_update(inst, validationset)
+				self.train_update(inst, trainset)
 			with open(save_weights_dest, 'w') as f:
-				print("\n\nEpoch {}: val_loss {}\n".format(i, self.min_val_loss))
+				print("\n\nEpoch {}: train_loss {}\n".format(i, self.min_loss))
 				f.write(json.dumps(self.best_weights))
 
 	
@@ -242,7 +246,7 @@ if __name__=='__main__':
 	df['min'] = df.apply(lambda row: dt.fromtimestamp(row['attempttime']/1000).min, axis=1)
 	df = df.sort_values(by=['attempttime'], ascending=True)
 
-	trainset, testset, validationset = read_data(df)
+	trainset, testset = read_data(df)
 	
 	if args.weights:
 		saved_weights = json.load(open(args.weights), 'r')
@@ -253,6 +257,6 @@ if __name__=='__main__':
 
 	
 	if not saved_weights or (saved_weights is not None and args.train_further):
-		model.train(trainset, validationset, args.save_weights, epochs=args.epochs)
+		model.train(trainset, args.save_weights, epochs=args.epochs)
 
 	model.eval(testset)
