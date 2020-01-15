@@ -26,8 +26,8 @@ LN2 = math.log(2.)
 Instance = namedtuple('Instance', ['recall', 'hl', 'time_delta', 'feature_vector'])
 
 
-def to_minutes(millis):
-	return (millis / 1000.0) / 60.0
+def to_days(millis):
+	return (millis / 1000.0) / 86400.0
 
 
 def recall_clip(recall):
@@ -73,17 +73,23 @@ def read_data(df):
 		userid = groupid[0]
 		examid = groupid[1]
 		categoryid = groupid[2]
+		correct_attempts_all = 0
+		total_attempts_all = 0
 		for sessionid, session_group in groupdf.groupby(['date']):
 			session_name = "{}".format(sessionid)
 			total_attempts = len(session_group)
+			total_attempts_all += total_attempts
 			correct_df = session_group[session_group['iscorrect'] == True]
 			correct_attempts = len(correct_df)
+			correct_attempts_all += correct_attempts
 			actual_recall = recall_clip(float(correct_df['difficulty'].sum()) / session_group['difficulty'].sum())
 			session_begin_time = session_group['attempttime'].min()
-			lag_time = 0 if not prev_session_end else to_minutes(session_begin_time - prev_session_end)
-			actual_halflife = MIN_HL if lag_time == 0 else halflife_clip(-lag_time / math.log(actual_recall, 2))
+			lag_time = float('inf') if not prev_session_end else to_days(session_begin_time - prev_session_end)
+			actual_halflife = MIN_HL if lag_time == float('inf') else halflife_clip(-lag_time / math.log(actual_recall, 2))
 			prev_session_end = session_group['attempttime'].max()
-			data.append([userid, examid, categoryid, session_name, prev_session_end, actual_recall, lag_time, actual_halflife, total_attempts, correct_attempts])
+			row = [userid, examid, categoryid, session_name, prev_session_end, actual_recall, lag_time, actual_halflife, total_attempts_all, correct_attempts_all, total_attempts, correct_attempts]
+			print ("Data Row: ", row)
+			data.append(row)
 	return data
 
 
@@ -94,8 +100,10 @@ def get_instances_from_data(data):
 		hl = datum[7]
 		time_delta = datum[6]
 		feature_vector = list()
-		feature_vector.append((sys.intern('right'), math.sqrt(1 + datum[-1])))
-		feature_vector.append((sys.intern('wrong'), math.sqrt(1 + datum[-2] - datum[-1])))
+		feature_vector.append((sys.intern('right_all'), math.sqrt(1 + datum[-3])))
+		feature_vector.append((sys.intern('wrong_all'), math.sqrt(1 + datum[-4] - datum[-3])))
+		feature_vector.append((sys.intern('right_session'), math.sqrt(1 + datum[-1])))
+		feature_vector.append((sys.intern('wrong_session'), math.sqrt(1 + datum[-2] - datum[-1])))
 		feature_vector.append((sys.intern(datum[1]), 1.))
 		feature_vector.append((sys.intern(str(datum[2])), 1.))
 		instances.append(Instance(recall, hl, time_delta, feature_vector))
@@ -149,10 +157,12 @@ class HLRModel(object):
 	def train_update(self, inst, validationset):
 		base = 2.
 		recall, hl = self.predict(inst, base)
+		print ("tredict_train_update recall %.3f hl %.3f" % (recall, hl))
 		dl_recall_dw = 2. * (recall - inst.recall) * (LN2 ** 2) * recall * (inst.time_delta / hl)
 		dl_hl_dw = 2. * (hl - inst.hl) * LN2 * hl
 		for (feature, value) in inst.feature_vector:
 			rate = (1. / (1 + inst.recall)) * self.lrate / math.sqrt(1 + self.fcounts[feature])
+			print ("rate_train_update")
 			self.weights[feature] -= rate * dl_recall_dw * value
 			self.weights[feature] -= rate * self.hlwt * dl_hl_dw * value
 			# L2 regularization update
@@ -162,8 +172,8 @@ class HLRModel(object):
 		val_loss = self.get_validation_loss(validationset)			
 		if val_loss < self.min_val_loss:
 			self.min_val_loss = val_loss
-			self.best_weights = self.weights
-		print ("rec %.2f, hl %.2f, val_loss %.3f (min %.3f)" % (recall, hl, val_loss, self.min_val_loss))
+			self.best_weights.update(self.weights)
+		print ("train_update rec %.2f, hl %.2f, val_loss %.3f (min %.3f)" % (recall, hl, val_loss, self.min_val_loss))
 
 	
 	def train(self, trainset, validationset, save_weights_dest, epochs=5):
