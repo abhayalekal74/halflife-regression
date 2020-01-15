@@ -8,6 +8,7 @@ Original file is located at
 """
 
 import pandas as pd
+import numpy as np
 from datetime import datetime as dt
 import math
 import random
@@ -19,8 +20,9 @@ import argparse
 
 MIN_REC = 0.0001
 MAX_REC = 0.9999
-MIN_HL = 1 #1 minute
-MAX_HL = 30 #30 minutes
+MIN_HL = 1 #sec
+MAX_HL = 86400 #sec
+MIN_WEIGHT = 0.1
 LN2 = math.log(2.)
 
 Instance = namedtuple('Instance', ['recall', 'hl', 'time_delta', 'feature_vector'])
@@ -67,17 +69,24 @@ def spearmanr(l1, l2):
 
 def read_data(df):
 	print ("Reading data...")
-	data = list()
+	instances = list()
 	has_practiced_before = 0
-	for groupid, groupdf in df.groupby(['userid', 'examid', 'categoryid']):
+	#for groupid, groupdf in df.groupby(['userid', 'examid', 'categoryid']):
+	for groupid, groupdf in df.groupby(['examid']):
+		print ("exam_group", groupid, len(groupdf))
 		prev_session_end = None
-		userid = groupid[0]
-		examid = groupid[1]
-		categoryid = groupid[2]
+		#userid = groupid[0]
+		userid = 'u0'
+		#examid = groupid[1]
+		examid = groupid
+		#categoryid = groupid[2]
+		categoryid = 1
 		correct_attempts_all = 0
 		total_attempts_all = 0
-		for sessionid, session_group in groupdf.groupby(['date']):
+		#for sessionid, session_group in groupdf.groupby(['date']):
+		for sessionid, session_group in groupdf.groupby(['date', 'hour', 'min']):
 			session_name = "{}".format(sessionid)
+			print ("minute_group", session_name, len(session_group))
 			total_attempts = len(session_group)
 			total_attempts_all += total_attempts
 			correct_df = session_group[session_group['iscorrect'] == True]
@@ -85,32 +94,27 @@ def read_data(df):
 			correct_attempts_all += correct_attempts
 			actual_recall = recall_clip(float(correct_df['difficulty'].sum()) / session_group['difficulty'].sum())
 			session_begin_time = session_group['attempttime'].min()
-			lag_time = float('inf') if not prev_session_end else to_days(session_begin_time - prev_session_end)
-			if lag_time != float('inf'):
+			#time_delta = float('inf') if not prev_session_end else to_days(session_begin_time - prev_session_end)
+			time_delta = float('inf') if not prev_session_end else (session_begin_time - prev_session_end) / 1000.0
+			if time_delta != float('inf'):
 				has_practiced_before += 1 
-			actual_halflife = MIN_HL if lag_time == float('inf') else halflife_clip(-lag_time / math.log(actual_recall, 2))
+			actual_halflife = MAX_HL if time_delta == float('inf') else halflife_clip(-time_delta / math.log(actual_recall, 2))
 			prev_session_end = session_group['attempttime'].max()
-			row = [userid, examid, categoryid, session_name, prev_session_end, actual_recall, lag_time, actual_halflife, total_attempts_all, correct_attempts_all, total_attempts, correct_attempts]
-			print ("Data Row: ", row)
-			data.append(row)
+
+			feature_vector = list()
+			feature_vector.append((sys.intern('right_all'), math.sqrt(1 + correct_attempts_all)))
+			feature_vector.append((sys.intern('wrong_all'), math.sqrt(1 + total_attempts_all - correct_attempts_all)))
+			feature_vector.append((sys.intern('right_session'), math.sqrt(1 + correct_attempts)))
+			feature_vector.append((sys.intern('wrong_session'), math.sqrt(1 + total_attempts - correct_attempts)))
+			feature_vector.append((sys.intern(userid), 1.))
+			feature_vector.append((sys.intern(examid), 1.))
+			feature_vector.append((sys.intern(str(categoryid)), 1.))
+			inst = Instance(actual_recall, actual_halflife, time_delta, feature_vector)
+			instances.append(inst)
+
+			print ("Data Instance: ", inst)
 		print ("has_practiced_before", has_practiced_before)
-	return data
 
-
-def get_instances_from_data(data):
-	instances = list()
-	for datum in data:
-		recall = datum[5]
-		hl = datum[7]
-		time_delta = datum[6]
-		feature_vector = list()
-		feature_vector.append((sys.intern('right_all'), math.sqrt(1 + datum[-3])))
-		feature_vector.append((sys.intern('wrong_all'), math.sqrt(1 + datum[-4] - datum[-3])))
-		feature_vector.append((sys.intern('right_session'), math.sqrt(1 + datum[-1])))
-		feature_vector.append((sys.intern('wrong_session'), math.sqrt(1 + datum[-2] - datum[-1])))
-		feature_vector.append((sys.intern(datum[1]), 1.))
-		feature_vector.append((sys.intern(str(datum[2])), 1.))
-		instances.append(Instance(recall, hl, time_delta, feature_vector))
 	splitpoint = int(0.9 * len(instances))
 	trainset = instances[:splitpoint]
 	rest = instances[splitpoint:]
@@ -122,7 +126,7 @@ def get_instances_from_data(data):
 
 class HLRModel(object):
 	def __init__(self, initial_weights=None, lrate=.001, hlwt=.01, l2wt=.1, sigma=1.):
-		self.weights = defaultdict(float)
+		self.weights = defaultdict(lambda: np.random.uniform())
 		self.best_weights = defaultdict(float)
 		if initial_weights is not None:
 			self.weights.update(initial_weights)
@@ -137,11 +141,8 @@ class HLRModel(object):
 
 	def halflife(self, inst, base):
 		# h = 2 ** (theta . x)
-		try:
-			theta_x_dot_product = sum([self.best_weights[feature]*value for (feature, value) in inst.feature_vector])
-			return halflife_clip(base ** theta_x_dot_product) 
-		except:
-			return MAX_HL
+		theta_x_dot_product = sum([self.weights[feature] * value for (feature, value) in inst.feature_vector])
+		return halflife_clip(base ** theta_x_dot_product) 
 
 
 	def predict(self, inst, base=2.):
@@ -161,16 +162,17 @@ class HLRModel(object):
 	def train_update(self, inst, validationset):
 		base = 2.
 		recall, hl = self.predict(inst, base)
-		print ("predict_train_update recall %.3f hl %.3f" % (recall, hl))
 		dl_recall_dw = 2. * (recall - inst.recall) * (LN2 ** 2) * recall * (inst.time_delta / hl)
 		dl_hl_dw = 2. * (hl - inst.hl) * LN2 * hl
 		for (feature, value) in inst.feature_vector:
 			rate = (1. / (1 + inst.recall)) * self.lrate / math.sqrt(1 + self.fcounts[feature])
-			print ("rate_train_update", rate)
-			self.weights[feature] -= rate * dl_recall_dw * value
-			self.weights[feature] -= rate * self.hlwt * dl_hl_dw * value
+			weight_update = self.weights[feature] - rate * dl_recall_dw * value
+			weight_update -= rate * self.hlwt * dl_hl_dw * value
 			# L2 regularization update
-			self.weights[feature] -= rate * self.l2wt * self.weights[feature] / self.sigma ** 2
+			weight_update -= rate * self.l2wt * self.weights[feature] / self.sigma ** 2
+
+			self.weights[feature] = MIN_WEIGHT if math.isnan(weight_update) else weight_update
+
 			# increment feature count for learning rate
 			self.fcounts[feature] += 1
 		val_loss = self.get_validation_loss(validationset)			
@@ -207,7 +209,7 @@ class HLRModel(object):
 			results['pred_hl'].append(hl)
 			results['sl_recall'].append(sl_recall)	  # loss function values
 			results['sl_hl'].append(sl_hl)
-			#print ("actual_rec {}, pred_rec {}, actual_hl {}, pred_hl {}, sl_rec {}, sl_hl {}".format(inst.recall, recall, inst.hl, hl, sl_recall, sl_hl))
+			print ("actual_rec {}, pred_rec {}, actual_hl {}, pred_hl {}, sl_rec {}, sl_hl {}".format(inst.recall, recall, inst.hl, hl, sl_recall, sl_hl))
 		mae_recall = mae(results['recall'], results['pred_recall'])
 		mae_hl = mae(results['hl'], results['pred_hl'])
 		cor_recall = spearmanr(results['recall'], results['pred_recall'])
@@ -237,10 +239,10 @@ if __name__=='__main__':
 	df = pd.read_csv(args.attempts_file)
 	df['date'] = df.apply(lambda row: dt.fromtimestamp(row['attempttime']/1000).date(), axis=1) 
 	df['hour'] = df.apply(lambda row: dt.fromtimestamp(row['attempttime']/1000).hour, axis=1)
+	df['min'] = df.apply(lambda row: dt.fromtimestamp(row['attempttime']/1000).min, axis=1)
 	df = df.sort_values(by=['attempttime'], ascending=True)
 
-	data = read_data(df)
-	trainset, testset, validationset = get_instances_from_data(data)
+	trainset, testset, validationset = read_data(df)
 	
 	if args.weights:
 		saved_weights = json.load(open(args.weights), 'r')
