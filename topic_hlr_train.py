@@ -68,6 +68,7 @@ def spearmanr(l1, l2):
 def read_data(df):
 	print ("Reading data...")
 	data = list()
+	has_practiced_before = 0
 	for groupid, groupdf in df.groupby(['userid', 'examid', 'categoryid']):
 		prev_session_end = None
 		userid = groupid[0]
@@ -85,11 +86,14 @@ def read_data(df):
 			actual_recall = recall_clip(float(correct_df['difficulty'].sum()) / session_group['difficulty'].sum())
 			session_begin_time = session_group['attempttime'].min()
 			lag_time = float('inf') if not prev_session_end else to_days(session_begin_time - prev_session_end)
+			if lag_time != float('inf'):
+				has_practiced_before += 1 
 			actual_halflife = MIN_HL if lag_time == float('inf') else halflife_clip(-lag_time / math.log(actual_recall, 2))
 			prev_session_end = session_group['attempttime'].max()
 			row = [userid, examid, categoryid, session_name, prev_session_end, actual_recall, lag_time, actual_halflife, total_attempts_all, correct_attempts_all, total_attempts, correct_attempts]
 			print ("Data Row: ", row)
 			data.append(row)
+		print ("has_practiced_before", has_practiced_before)
 	return data
 
 
@@ -157,12 +161,12 @@ class HLRModel(object):
 	def train_update(self, inst, validationset):
 		base = 2.
 		recall, hl = self.predict(inst, base)
-		print ("tredict_train_update recall %.3f hl %.3f" % (recall, hl))
+		print ("predict_train_update recall %.3f hl %.3f" % (recall, hl))
 		dl_recall_dw = 2. * (recall - inst.recall) * (LN2 ** 2) * recall * (inst.time_delta / hl)
 		dl_hl_dw = 2. * (hl - inst.hl) * LN2 * hl
 		for (feature, value) in inst.feature_vector:
 			rate = (1. / (1 + inst.recall)) * self.lrate / math.sqrt(1 + self.fcounts[feature])
-			print ("rate_train_update")
+			print ("rate_train_update", rate)
 			self.weights[feature] -= rate * dl_recall_dw * value
 			self.weights[feature] -= rate * self.hlwt * dl_hl_dw * value
 			# L2 regularization update
