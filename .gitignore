@@ -1,4 +1,7 @@
 .*.swp
+.*.swn
+.*.swo
+*.log
 nohup.out
 results/
 data/
