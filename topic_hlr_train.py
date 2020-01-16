@@ -25,6 +25,7 @@ MAX_REC = 0.9999
 MIN_HL = 0.0001 #min
 MAX_HL = 180.0 #min
 MIN_WEIGHT = 0.0001
+HYPER_PARAM_OPT_ROUNDS = 50
 LN2 = math.log(2.)
 
 Instance = namedtuple('Instance', ['recall', 'hl', 'time_delta', 'feature_vector'])
@@ -257,7 +258,7 @@ def parse_args():
 	parser.add_argument('--weights', dest='weights', help="JSON file containing trained weights")
 	parser.add_argument('--save-weights', dest='save_weights', default="saved_weights.csv", help='File to save the weights in')
 	parser.add_argument('--epochs', dest='epochs', type=int, default=1, help='Epochs to train')
-	parser.add_argument('--param-opt-rounds', dest='param_opt_rounds', type=int, default=50, help='Hyperparameter optimization rounds')
+	parser.add_argument('--param-opt-rounds', dest='param_opt_rounds', type=int, default=0, help='Hyperparameter optimization rounds')
 	parser.add_argument('--train-further', dest='train_further', default=False, action="store_true", help='If the weights should be trained further')
 	parser.add_argument('--optimize-params', dest='optimize_params', default=False, action="store_true", help='Optimize hyperparameters')
 	parser.add_argument('attempts_file', help='CSV file containing attempts data')
@@ -286,8 +287,8 @@ if __name__=='__main__':
 
 	
 	if not saved_weights or (saved_weights is not None and args.train_further):
-		if args.optimize_params:
-			model.train_with_param_optimization(trainset, args.epochs, args.save_weights, args.param_opt_rounds)
+		if args.optimize_params or args.param_opt_rounds > 0:
+			model.train_with_param_optimization(trainset, args.epochs, args.save_weights, HYPER_PARAM_OPT_ROUNDS if args.param_opt_rounds == 0 else args.param_opt_rounds)
 		else:
 			model.train(None, trainset, args.epochs, args.save_weights)
 
