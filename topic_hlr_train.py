@@ -136,7 +136,7 @@ def read_data(df):
 
 class HLRModel(object):
 	# Default lrate=.001, hlwt=.01, l2wt=.1, sigma=1.
-	def __init__(self, initial_weights=None, lrate=.001, hlwt=.01, l2wt=.1, sigma=1.): 
+	def __init__(self, initial_weights=None, lrate=0.022427189896994885, hlwt=0.0076612918283761695, l2wt=0.18511718781821973, sigma=0.8733141261582174): 
 		self.weights = defaultdict(float)
 		self.best_weights = defaultdict(float)
 		if initial_weights is not None:
