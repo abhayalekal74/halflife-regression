@@ -195,26 +195,28 @@ class HLRModel(object):
 		return self.min_loss 
 
 	
-	def train(self, params):
-		self.lrate = params['lrate']
-		self.hlwt = params['hlwt']
-		self.l2wt = params['l2wt']
-		self.sigma = params['sigma']
+	def train(self, params, trainset, epochs, save_weights):
+		if params:
+			self.lrate = params['lrate']
+			self.hlwt = params['hlwt']
+			self.l2wt = params['l2wt']
+			self.sigma = params['sigma']
 
 		train_loss = float('inf')
 
-		for i in tqdm(range(args.epochs), desc="Epoch "):
+		for i in tqdm(range(epochs), desc="Epoch "):
 			for inst in tqdm(trainset, desc="Training Instance "):
 				train_loss = self.train_update(inst, trainset)
-			with open(args.save_weights, 'w') as f:
+			with open(save_weights, 'w') as f:
 				print("\n\nEpoch {}: train_loss {}\n".format(i, self.min_loss))
 				f.write(json.dumps(self.best_weights))
 		return {'loss': train_loss, 'status': STATUS_OK, 'params': params}
 
 
-	def train_with_param_optimization(self):
+	def train_with_param_optimization(self, trainset, epochs, save_weights, param_opt_rounds):
 		bayes_trials = Trials()
-		best_params = fmin(fn = self._train, space = hyper_param_space, algo = tpe.suggest, max_evals = 50, trials = bayes_trials)		
+		objective_fn = partial(self.train, trainset=trainset, epochs=epochs, save_weights=save_weights)
+		best_params = fmin(fn = objective_fn, space = hyper_param_space, algo = tpe.suggest, max_evals = param_opt_rounds, trials = bayes_trials)		
 		bayes_trials_results = sorted(bayes_trials.results, key = lambda x: x['loss'])
 		print ("\nTop trials:\n{}".format(bayes_trials_results[:2]))
 		print ("\nBest Params:\n{}\n".format(best_params))
@@ -255,7 +257,9 @@ def parse_args():
 	parser.add_argument('--weights', dest='weights', help="JSON file containing trained weights")
 	parser.add_argument('--save-weights', dest='save_weights', default="saved_weights.csv", help='File to save the weights in')
 	parser.add_argument('--epochs', dest='epochs', type=int, default=1, help='Epochs to train')
+	parser.add_argument('--param-opt-rounds', dest='param_opt_rounds', type=int, default=50, help='Hyperparameter optimization rounds')
 	parser.add_argument('--train-further', dest='train_further', default=False, action="store_true", help='If the weights should be trained further')
+	parser.add_argument('--optimize-params', dest='optimize_params', default=False, action="store_true", help='Optimize hyperparameters')
 	parser.add_argument('attempts_file', help='CSV file containing attempts data')
 	args = parser.parse_args()
 	if not args.attempts_file:
@@ -282,6 +286,9 @@ if __name__=='__main__':
 
 	
 	if not saved_weights or (saved_weights is not None and args.train_further):
-		model.train_with_param_optimization() if args.optimize_params else model.train(None)
+		if args.optimize_params:
+			model.train_with_param_optimization(trainset, args.epochs, args.save_weights, args.param_opt_rounds)
+		else:
+			model.train(None, trainset, args.epochs, args.save_weights)
 
 	model.eval(testset)
