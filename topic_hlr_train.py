@@ -17,6 +17,7 @@ import sys
 from tqdm import tqdm
 import json
 import argparse
+from hyperopt import hp, fmin, tpe, Trials, STATUS_OK
 
 MIN_REC = 0.0001
 MAX_REC = 0.9999
@@ -27,6 +28,12 @@ LN2 = math.log(2.)
 
 Instance = namedtuple('Instance', ['recall', 'hl', 'time_delta', 'feature_vector'])
 
+hyper_param_space = {
+						'lrate': hp.loguniform('lrate', np.log(.0001), np.log(.2)), 
+						'hlwt': hp.loguniform('hlwt', np.log(0.001), np.log(0.5)), 
+						'l2wt': hp.loguniform('l2wt', np.log(0.001), np.log(0.2)), 
+						'sigma': hp.uniform('sigma', 0., 1.)
+					}
 
 def to_days(millis):
 	return (millis / 1000.0) / 86400.0
@@ -184,15 +191,32 @@ class HLRModel(object):
 			self.min_loss = train_loss
 			self.best_weights.update(self.weights)
 		print ("train_update rec %.2f, hl %.2f, train_loss %.3f (min %.3f)" % (recall, hl, train_loss, self.min_loss))
+		return self.min_loss 
 
 	
-	def train(self, trainset, save_weights_dest, epochs=5):
-		for i in tqdm(range(epochs), desc="Epoch "):
+	def _train(self, params):
+		self.lrate = params['lrate']
+		self.hlwt = params['hlwt']
+		self.l2wt = params['l2wt']
+		self.sigma = params['sigma']
+
+		train_loss = float('inf')
+
+		for i in tqdm(range(args.epochs), desc="Epoch "):
 			for inst in tqdm(trainset, desc="Training Instance "):
-				self.train_update(inst, trainset)
-			with open(save_weights_dest, 'w') as f:
+				train_loss = self.train_update(inst, trainset)
+			with open(args.save_weights, 'w') as f:
 				print("\n\nEpoch {}: train_loss {}\n".format(i, self.min_loss))
 				f.write(json.dumps(self.best_weights))
+		return {'loss': train_loss, 'status': STATUS_OK, 'params': params}
+
+
+	def train(self):
+		bayes_trials = Trials()
+		best_params = fmin(fn = self._train, space = hyper_param_space, algo = tpe.suggest, max_evals = 50, trials = bayes_trials)		
+		bayes_trials_results = sorted(bayes_trials.results, key = lambda x: x['loss'])
+		print ("\nTop trials:\n{}".format(bayes_trials_results[:2]))
+		print ("\nBest Params:\n{}\n".format(best_params))
 
 	
 	def losses(self, inst):
@@ -222,7 +246,7 @@ class HLRModel(object):
 		total_sl_hl = sum(results['sl_hl'])
 		total_l2 = sum([x ** 2 for x in self.weights.values()])
 		total_loss = total_sl_recall + self.hlwt * total_sl_hl + self.l2wt * total_l2
-		print('total_loss=%.1f (recall=%.1f, hl=%.1f, l2=%.1f)\tmae(recall)=%.3f\tcor(recall)=%.3f\tmae(hl)=%.3f\tcor(hl)=%.3f\n' % (total_loss, total_sl_recall, self.hlwt * total_sl_hl, self.l2wt * total_l2, mae_recall, cor_recall, mae_hl, cor_hl))
+		print('\ntotal_loss=%.1f (recall=%.1f, hl=%.1f, l2=%.1f)\tmae(recall)=%.3f\tcor(recall)=%.3f\tmae(hl)=%.3f\tcor(hl)=%.3f\n' % (total_loss, total_sl_recall, self.hlwt * total_sl_hl, self.l2wt * total_l2, mae_recall, cor_recall, mae_hl, cor_hl))
 
 
 def parse_args():
@@ -257,6 +281,6 @@ if __name__=='__main__':
 
 	
 	if not saved_weights or (saved_weights is not None and args.train_further):
-		model.train(trainset, args.save_weights, epochs=args.epochs)
+		model.train()
 
 	model.eval(testset)
