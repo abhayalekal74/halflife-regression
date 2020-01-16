@@ -18,6 +18,7 @@ from tqdm import tqdm
 import json
 import argparse
 from hyperopt import hp, fmin, tpe, Trials, STATUS_OK
+from functools import partial
 
 MIN_REC = 0.0001
 MAX_REC = 0.9999
@@ -194,7 +195,7 @@ class HLRModel(object):
 		return self.min_loss 
 
 	
-	def _train(self, params):
+	def train(self, params):
 		self.lrate = params['lrate']
 		self.hlwt = params['hlwt']
 		self.l2wt = params['l2wt']
@@ -211,7 +212,7 @@ class HLRModel(object):
 		return {'loss': train_loss, 'status': STATUS_OK, 'params': params}
 
 
-	def train(self):
+	def train_with_param_optimization(self):
 		bayes_trials = Trials()
 		best_params = fmin(fn = self._train, space = hyper_param_space, algo = tpe.suggest, max_evals = 50, trials = bayes_trials)		
 		bayes_trials_results = sorted(bayes_trials.results, key = lambda x: x['loss'])
@@ -281,6 +282,6 @@ if __name__=='__main__':
 
 	
 	if not saved_weights or (saved_weights is not None and args.train_further):
-		model.train()
+		model.train_with_param_optimization() if args.optimize_params else model.train(None)
 
 	model.eval(testset)
