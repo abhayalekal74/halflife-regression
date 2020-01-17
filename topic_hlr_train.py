@@ -84,16 +84,16 @@ def read_data(df):
 	print ("Reading data...")
 	instances = list()
 	has_practiced_before = 0
-	#for groupid, groupdf in df.groupby(['userid', 'examid', 'categoryid']):
-	for groupid, groupdf in df.groupby(['examid']):
+	for groupid, groupdf in df.groupby(['userid', 'examid', 'categoryid']):
+	#for groupid, groupdf in df.groupby(['examid']):
 		print ("exam_group", groupid, len(groupdf))
 		prev_session_end = None
-		#userid = groupid[0]
-		userid = 'u0'
-		#examid = groupid[1]
-		examid = groupid
-		#categoryid = groupid[2]
-		categoryid = 1
+		userid = groupid[0]
+		#userid = 'u0'
+		examid = groupid[1]
+		#examid = groupid
+		categoryid = groupid[2]
+		#categoryid = 1
 		correct_attempts_all = 0
 		total_attempts_all = 0
 		#for sessionid, session_group in groupdf.groupby(['date']):
@@ -136,7 +136,8 @@ def read_data(df):
 
 class HLRModel(object):
 	# Default lrate=.001, hlwt=.01, l2wt=.1, sigma=1.
-	def __init__(self, initial_weights=None, lrate=0.022427189896994885, hlwt=0.0076612918283761695, l2wt=0.18511718781821973, sigma=0.8733141261582174): 
+	#def __init__(self, initial_weights=None, lrate=0.022427189896994885, hlwt=0.0076612918283761695, l2wt=0.18511718781821973, sigma=0.8733141261582174): 
+	def __init__(self, initial_weights=None, lrate=.001, hlwt=.01, l2wt=.1, sigma=1.): 
 		self.weights = defaultdict(float)
 		self.best_weights = defaultdict(float)
 		if initial_weights is not None:
