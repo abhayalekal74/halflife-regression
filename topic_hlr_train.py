@@ -84,7 +84,7 @@ def read_data(df):
 	print ("Reading data...")
 	instances = list()
 	has_practiced_before = 0
-	for groupid, groupdf in df.groupby(['userid', 'examid', 'categoryid']):
+	for groupid, groupdf in df.groupby(['userid', 'examid', 'chapterid']):
 	#for groupid, groupdf in df.groupby(['examid']):
 		print ("exam_group", groupid, len(groupdf))
 		prev_session_end = None
@@ -92,8 +92,8 @@ def read_data(df):
 		#userid = 'u0'
 		examid = groupid[1]
 		#examid = groupid
-		categoryid = groupid[2]
-		#categoryid = 1
+		chapterid = groupid[2]
+		#chapterid = 1
 		correct_attempts_all = 0
 		total_attempts_all = 0
 		#for sessionid, session_group in groupdf.groupby(['date']):
@@ -121,7 +121,7 @@ def read_data(df):
 			feature_vector.append((sys.intern('wrong_session'), math.sqrt(1 + total_attempts - correct_attempts)))
 			feature_vector.append((sys.intern(userid), 1.))
 			feature_vector.append((sys.intern(examid), 1.))
-			feature_vector.append((sys.intern(str(categoryid)), 1.))
+			feature_vector.append((sys.intern(str(chapterid)), 1.))
 			inst = Instance(actual_recall, actual_halflife, time_delta, feature_vector)
 			instances.append(inst)
 
@@ -271,10 +271,12 @@ def parse_args():
 
 if __name__=='__main__':
 	args = parse_args()
+	qid_chap_map = json.load(open('data/question_data.json'))
 	df = pd.read_csv(args.attempts_file)
 	df['date'] = df.apply(lambda row: dt.fromtimestamp(row['attempttime']/1000).date(), axis=1) 
 	df['hour'] = df.apply(lambda row: dt.fromtimestamp(row['attempttime']/1000).hour, axis=1)
 	df['min'] = df.apply(lambda row: dt.fromtimestamp(row['attempttime']/1000).min, axis=1)
+	df['chapterid'] = df.apply(lambda row: qid_chap_map[row['questionid']], axis=1)
 	df = df.sort_values(by=['attempttime'], ascending=True)
 
 	trainset, testset = read_data(df)
