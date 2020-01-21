@@ -271,12 +271,14 @@ def parse_args():
 
 if __name__=='__main__':
 	args = parse_args()
-	qid_chap_map = json.load(open('data/question_data.json'))
+	cat_chap_map = defaultdict(lambda: float('nan'))
+	cat_chap_map.update(json.load(open('data/category_chapter_map.json')))
 	df = pd.read_csv(args.attempts_file)
 	df['date'] = df.apply(lambda row: dt.fromtimestamp(row['attempttime']/1000).date(), axis=1) 
 	df['hour'] = df.apply(lambda row: dt.fromtimestamp(row['attempttime']/1000).hour, axis=1)
 	df['min'] = df.apply(lambda row: dt.fromtimestamp(row['attempttime']/1000).min, axis=1)
-	df['chapterid'] = df.apply(lambda row: qid_chap_map[row['questionid']], axis=1)
+	df['chapterid'] = df.apply(lambda row: cat_chap_map[str(row['categoryid'])], axis=1)
+	df.dropna()
 	df = df.sort_values(by=['attempttime'], ascending=True)
 
 	trainset, testset = read_data(df)
