@@ -86,7 +86,6 @@ def read_data(df):
 	has_practiced_before = 0
 	for groupid, groupdf in df.groupby(['userid', 'examid', 'chapterid']):
 	#for groupid, groupdf in df.groupby(['examid']):
-		print ("exam_group", groupid, len(groupdf))
 		prev_session_end = None
 		userid = groupid[0]
 		#userid = 'u0'
@@ -99,7 +98,6 @@ def read_data(df):
 		#for sessionid, session_group in groupdf.groupby(['date']):
 		for sessionid, session_group in groupdf.groupby(['date', 'hour', 'min']):
 			session_name = "{}".format(sessionid)
-			print ("minute_group", session_name, len(session_group))
 			total_attempts = len(session_group)
 			total_attempts_all += total_attempts
 			correct_df = session_group[session_group['iscorrect'] == True]
@@ -124,9 +122,6 @@ def read_data(df):
 			feature_vector.append((sys.intern(str(chapterid)), 1.))
 			inst = Instance(actual_recall, actual_halflife, time_delta, feature_vector)
 			instances.append(inst)
-
-			print ("Data Instance: ", inst)
-		print ("has_practiced_before", has_practiced_before)
 
 	splitpoint = int(0.9 * len(instances))
 	trainset = instances[:splitpoint]
@@ -154,7 +149,6 @@ class HLRModel(object):
 	def halflife(self, inst, base):
 		# h = 2 ** (theta . x)
 		theta_x_dot_product = sum([self.weights[feature] * value for (feature, value) in inst.feature_vector])
-		print ("halflife_no_clip", base ** theta_x_dot_product)
 		return halflife_clip(base ** theta_x_dot_product) 
 
 
@@ -188,7 +182,6 @@ class HLRModel(object):
 
 			# increment feature count for learning rate
 			self.fcounts[feature] += 1
-			print ("\nweights", self.weights)
 		train_loss = self.get_total_loss(trainset)			
 		if train_loss < self.min_loss:
 			self.min_loss = train_loss
