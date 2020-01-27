@@ -19,14 +19,18 @@ import json
 import argparse
 from hyperopt import hp, fmin, tpe, Trials, STATUS_OK
 from functools import partial
+from queue import Queue
+from threading import Thread, Lock
 
 MIN_REC = 0.0001
 MAX_REC = 0.9999
 MIN_HL = 0.0001 #min
-MAX_HL = 180.0 #min
+MAX_HL = 30.0 #min
 MIN_WEIGHT = 0.0001
 HYPER_PARAM_OPT_ROUNDS = 50
 LN2 = math.log(2.)
+
+WORKERS = 10
 
 Instance = namedtuple('Instance', ['recall', 'hl', 'time_delta', 'feature_vector'])
 
@@ -105,8 +109,8 @@ def read_data(df):
 			correct_attempts_all += correct_attempts
 			actual_recall = recall_clip(float(correct_df['difficulty'].sum()) / session_group['difficulty'].sum())
 			session_begin_time = session_group['attempttime'].min()
-			#time_delta = float('inf') if not prev_session_end else to_days(session_begin_time - prev_session_end)
-			time_delta = float('inf') if not prev_session_end else to_minutes(session_begin_time - prev_session_end)
+			time_delta = float('inf') if not prev_session_end else to_days(session_begin_time - prev_session_end)
+			#time_delta = float('inf') if not prev_session_end else to_minutes(session_begin_time - prev_session_end)
 			if time_delta != float('inf'):
 				has_practiced_before += 1 
 			actual_halflife = MAX_HL if time_delta == float('inf') else halflife_clip(-time_delta / math.log(actual_recall, 2))
@@ -117,13 +121,13 @@ def read_data(df):
 			feature_vector.append((sys.intern('wrong_all'), math.sqrt(1 + total_attempts_all - correct_attempts_all)))
 			feature_vector.append((sys.intern('right_session'), math.sqrt(1 + correct_attempts)))
 			feature_vector.append((sys.intern('wrong_session'), math.sqrt(1 + total_attempts - correct_attempts)))
-			feature_vector.append((sys.intern(userid), 1.))
+			#feature_vector.append((sys.intern(userid), 1.))
 			feature_vector.append((sys.intern(examid), 1.))
 			feature_vector.append((sys.intern(str(chapterid)), 1.))
 			inst = Instance(actual_recall, actual_halflife, time_delta, feature_vector)
 			instances.append(inst)
 
-	splitpoint = int(0.9 * len(instances))
+	splitpoint = int(0.8 * len(instances))
 	trainset = instances[:splitpoint]
 	testset = instances[splitpoint:]
 	return trainset, testset
@@ -134,10 +138,10 @@ class HLRModel(object):
 	#def __init__(self, initial_weights=None, lrate=0.022427189896994885, hlwt=0.0076612918283761695, l2wt=0.18511718781821973, sigma=0.8733141261582174): 
 	def __init__(self, initial_weights=None, lrate=.001, hlwt=.01, l2wt=.1, sigma=1.): 
 		self.weights = defaultdict(float)
-		self.best_weights = defaultdict(float)
+		#self.best_weights = defaultdict(float)
 		if initial_weights is not None:
 			self.weights.update(initial_weights)
-			self.best_weights.update(initial_weights)
+			#self.best_weights.update(initial_weights)
 		self.fcounts = defaultdict(int)
 		self.lrate = lrate
 		self.hlwt = hlwt
@@ -166,28 +170,39 @@ class HLRModel(object):
 		return total_loss
 
 
-	def train_update(self, inst, trainset):
-		base = 2.
-		recall, hl = self.predict(inst, base)
-		dl_recall_dw = 2. * (recall - inst.recall) * (LN2 ** 2) * recall * (inst.time_delta / hl)
-		dl_hl_dw = 2. * (hl - inst.hl) * LN2 * hl
-		for (feature, value) in inst.feature_vector:
-			rate = (1. / (1 + inst.recall)) * self.lrate / math.sqrt(1 + self.fcounts[feature])
-			weight_update = self.weights[feature] - rate * dl_recall_dw * value
-			weight_update -= rate * self.hlwt * dl_hl_dw * value
-			# L2 regularization update
-			weight_update -= rate * self.l2wt * self.weights[feature] / self.sigma ** 2
-
-			self.weights[feature] = MIN_WEIGHT if math.isnan(weight_update) else weight_update
-
-			# increment feature count for learning rate
-			self.fcounts[feature] += 1
-		train_loss = self.get_total_loss(trainset)			
-		if train_loss < self.min_loss:
-			self.min_loss = train_loss
-			self.best_weights.update(self.weights)
-		print ("train_update rec %.2f, hl %.2f, train_loss %.3f (min %.3f)" % (recall, hl, train_loss, self.min_loss))
+	def train_update(self, queue, trainset):
+		while True:
+			batch = queue.get()
+			for inst in batch:
+				base = 2.
+				recall, hl = self.predict(inst, base)
+				dl_recall_dw = 2. * (recall - inst.recall) * (LN2 ** 2) * recall * (inst.time_delta / hl)
+				dl_hl_dw = 2. * (hl - inst.hl) * LN2 * hl
+				for (feature, value) in inst.feature_vector:
+					rate = (1. / (1 + inst.recall)) * self.lrate / math.sqrt(1 + self.fcounts[feature])
+					weight_update = self.weights[feature] - rate * dl_recall_dw * value
+					weight_update -= rate * self.hlwt * dl_hl_dw * value
+					# L2 regularization update
+					weight_update -= rate * self.l2wt * self.weights[feature] / self.sigma ** 2
+					lock.acquire()
+					self.weights[feature] = MIN_WEIGHT if math.isnan(weight_update) else weight_update
+					lock.release()
+					# increment feature count for learning rate
+					self.fcounts[feature] += 1
+				"""
+				train_loss = self.get_total_loss(trainset)			
+				if train_loss < self.min_loss:
+					self.min_loss = train_loss
+					self.best_weights.update(self.weights)
+				print ("train_update rec %.2f, hl %.2f, train_loss %.3f (min %.3f)" % (recall, hl, train_loss, self.min_loss))
+				"""
+			queue.task_done()
 		return self.min_loss 
+
+
+	def get_batches(self, dataset, size=1024):
+		for i in range(0, len(dataset), size):
+			yield dataset[i : i + size]		
 
 	
 	def train(self, params, trainset, epochs, save_weights):
@@ -199,12 +214,21 @@ class HLRModel(object):
 
 		train_loss = float('inf')
 
-		for i in tqdm(range(epochs), desc="Epoch "):
-			for inst in tqdm(trainset, desc="Training Instance "):
+		for i in range(epochs):
+			for batch in self.get_batches(trainset):
+				queue.put(batch)	
+			for _ in range(WORKERS):
+				worker = Thread(target=self.train_update, args=(queue, trainset))
+				worker.setDaemon(True)
+				worker.start() 
+			"""
+			for batch in tqdm(trainset, desc="Training Instance "):
 				train_loss = self.train_update(inst, trainset)
+			"""
 			with open(save_weights, 'w') as f:
 				print("\n\nEpoch {}: train_loss {}\n".format(i, self.min_loss))
-				f.write(json.dumps(self.best_weights))
+				f.write(json.dumps(self.weights))
+			print ("Weight after epoch {}: {}".format(i, self.weights))
 		return {'loss': train_loss, 'status': STATUS_OK, 'params': params}
 
 
@@ -275,7 +299,10 @@ if __name__=='__main__':
 	df = df.sort_values(by=['attempttime'], ascending=True)
 
 	trainset, testset = read_data(df)
-	
+
+	queue = Queue()
+	lock = Lock()	
+
 	if args.weights:
 		saved_weights = json.load(open(args.weights), 'r')
 		model = HLRModel(initial_weights=saved_weights)
@@ -289,5 +316,5 @@ if __name__=='__main__':
 			model.train_with_param_optimization(trainset, args.epochs, args.save_weights, HYPER_PARAM_OPT_ROUNDS if args.param_opt_rounds == 0 else args.param_opt_rounds)
 		else:
 			model.train(None, trainset, args.epochs, args.save_weights)
-
+	queue.join()
 	model.eval(testset)
