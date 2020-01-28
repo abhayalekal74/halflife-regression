@@ -22,10 +22,10 @@ from functools import partial
 from queue import Queue
 from threading import Thread, Lock
 
-MIN_REC = 0.0001
-MAX_REC = 0.9999
-MIN_HL = 0.0001 #min
-MAX_HL = 30.0 #min
+MIN_REC = 0.1
+MAX_REC = 1.0 
+MIN_HL = 0.1 #days
+MAX_HL = 30.0 #days
 MIN_WEIGHT = 0.0001
 HYPER_PARAM_OPT_ROUNDS = 50
 LN2 = math.log(2.)
@@ -64,7 +64,7 @@ def mae(l1, l2):
 
 def mean(lst):
 	# the average of a list
-	return float(sum(lst)) / len(lst)
+	return float(sum(lst)) / (len(lst) + 0.001)
 
 
 def spearmanr(l1, l2):
@@ -87,7 +87,6 @@ def spearmanr(l1, l2):
 def read_data(df):
 	print ("Reading data...")
 	instances = list()
-	has_practiced_before = 0
 	for groupid, groupdf in df.groupby(['userid', 'examid', 'chapterid']):
 	#for groupid, groupdf in df.groupby(['examid']):
 		prev_session_end = None
@@ -109,11 +108,9 @@ def read_data(df):
 			correct_attempts_all += correct_attempts
 			actual_recall = recall_clip(float(correct_df['difficulty'].sum()) / session_group['difficulty'].sum())
 			session_begin_time = session_group['attempttime'].min()
-			time_delta = float('inf') if not prev_session_end else to_days(session_begin_time - prev_session_end)
+			time_delta = MAX_HL if not prev_session_end else to_days(session_begin_time - prev_session_end)
 			#time_delta = float('inf') if not prev_session_end else to_minutes(session_begin_time - prev_session_end)
-			if time_delta != float('inf'):
-				has_practiced_before += 1 
-			actual_halflife = MAX_HL if time_delta == float('inf') else halflife_clip(-time_delta / math.log(actual_recall, 2))
+			actual_halflife = MAX_HL if time_delta == MAX_HL else halflife_clip(-time_delta / math.log(actual_recall, 2))
 			prev_session_end = session_group['attempttime'].max()
 
 			feature_vector = list()
@@ -170,7 +167,7 @@ class HLRModel(object):
 		return total_loss
 
 
-	def train_update(self, queue, trainset):
+	def train_update(self, worker, queue, trainset):
 		while True:
 			batch = queue.get()
 			for inst in batch:
@@ -184,9 +181,7 @@ class HLRModel(object):
 					weight_update -= rate * self.hlwt * dl_hl_dw * value
 					# L2 regularization update
 					weight_update -= rate * self.l2wt * self.weights[feature] / self.sigma ** 2
-					lock.acquire()
 					self.weights[feature] = MIN_WEIGHT if math.isnan(weight_update) else weight_update
-					lock.release()
 					# increment feature count for learning rate
 					self.fcounts[feature] += 1
 				"""
@@ -217,8 +212,9 @@ class HLRModel(object):
 		for i in range(epochs):
 			for batch in self.get_batches(trainset):
 				queue.put(batch)	
-			for _ in range(WORKERS):
-				worker = Thread(target=self.train_update, args=(queue, trainset))
+			print ("Total batches", queue.qsize())
+			for w in range(WORKERS):
+				worker = Thread(target=self.train_update, args=(w, queue, trainset))
 				worker.setDaemon(True)
 				worker.start() 
 			"""
@@ -279,6 +275,7 @@ def parse_args():
 	parser.add_argument('--param-opt-rounds', dest='param_opt_rounds', type=int, default=0, help='Hyperparameter optimization rounds')
 	parser.add_argument('--train-further', dest='train_further', default=False, action="store_true", help='If the weights should be trained further')
 	parser.add_argument('--optimize-params', dest='optimize_params', default=False, action="store_true", help='Optimize hyperparameters')
+	parser.add_argument('--convert-to-chapters', dest='convert_to_chapters', default=False, action="store_true", help='Convert categoryid to chapters. Use when csv contains categoryid instead of chapterid')
 	parser.add_argument('attempts_file', help='CSV file containing attempts data')
 	args = parser.parse_args()
 	if not args.attempts_file:
@@ -294,11 +291,13 @@ if __name__=='__main__':
 	df['date'] = df.apply(lambda row: dt.fromtimestamp(row['attempttime']/1000).date(), axis=1) 
 	df['hour'] = df.apply(lambda row: dt.fromtimestamp(row['attempttime']/1000).hour, axis=1)
 	df['min'] = df.apply(lambda row: dt.fromtimestamp(row['attempttime']/1000).min, axis=1)
-	df['chapterid'] = df.apply(lambda row: cat_chap_map[str(row['categoryid'])], axis=1)
+	if args.convert_to_chapters:
+		df['chapterid'] = df.apply(lambda row: cat_chap_map[str(row['categoryid'])], axis=1)
 	df.dropna()
 	df = df.sort_values(by=['attempttime'], ascending=True)
 
 	trainset, testset = read_data(df)
+	print ("trainset {}, testset {}".format(len(trainset), len(testset)))
 
 	queue = Queue()
 	lock = Lock()	
