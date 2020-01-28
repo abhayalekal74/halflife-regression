@@ -303,7 +303,7 @@ if __name__=='__main__':
 	lock = Lock()	
 
 	if args.weights:
-		saved_weights = json.load(open(args.weights), 'r')
+		saved_weights = json.load(open(args.weights, 'r'))
 		model = HLRModel(initial_weights=saved_weights)
 	else:
 		saved_weights = None
