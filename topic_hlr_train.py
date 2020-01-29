@@ -21,14 +21,17 @@ from hyperopt import hp, fmin, tpe, Trials, STATUS_OK
 from functools import partial
 from queue import Queue
 from threading import Thread, Lock
+import matplotlib as plt
+import seaborn as sb
 
 MIN_REC = 0.1
 MAX_REC = 1.0 
 MIN_HL = 0.1 #days
-MAX_HL = 30.0 #days
+MAX_HL = 90.0 #days
 MIN_WEIGHT = 0.0001
 HYPER_PARAM_OPT_ROUNDS = 50
 LN2 = math.log(2.)
+REC_INFO_TO_USE = 0.35
 
 WORKERS = 10
 
@@ -247,6 +250,10 @@ class HLRModel(object):
 	def eval(self, testset):
 		print ("Predicting...")
 		results = {'recall': [], 'hl': [], 'pred_recall': [], 'pred_hl': [], 'sl_recall': [], 'sl_hl': []}
+		recalls = [inst.recall for inst in testset]
+		hls = [inst.hl for inst in testset]
+		time_deltas = [inst.time_delta for inst in testset]
+		halflives_in_practice = list()
 		for inst in testset:
 			sl_recall, sl_hl, recall, hl = self.losses(inst)
 			results['recall'].append(inst.recall)	 # ground truth
@@ -255,7 +262,13 @@ class HLRModel(object):
 			results['pred_hl'].append(hl)
 			results['sl_recall'].append(sl_recall)	  # loss function values
 			results['sl_hl'].append(sl_hl)
-			print ("actual_rec {}, pred_rec {}, actual_hl {}, pred_hl {}, sl_rec {}, sl_hl {}".format(inst.recall, recall, inst.hl, hl, sl_recall, sl_hl))
+			#hl_in_practice = max(MIN_HL, (MAX_HL - (MAX_REC / (inst.recall * REC_INFO_TO_USE)) * hl))
+			hl_in_practice = min(MAX_HL, 5 * hl)
+			halflives_in_practice.append(hl_in_practice)
+			print ("\n\nrecall a:p {}:{}, hl  a:p {}:{}, hl_in_practice {} days, lag {}\nfeature_vec {}".format(inst.recall, recall, inst.hl, hl, hl_in_practice, inst.time_delta, inst.feature_vector))
+		graph_df = pd.DataFrame(list(zip(halflives_in_practice, recalls)), columns=['H', 'R'])
+		plot = sb.lmplot(x='R', y='H', data = graph_df)
+		plot.savefig('graph.png')
 		mae_recall = mae(results['recall'], results['pred_recall'])
 		mae_hl = mae(results['hl'], results['pred_hl'])
 		cor_recall = spearmanr(results['recall'], results['pred_recall'])
