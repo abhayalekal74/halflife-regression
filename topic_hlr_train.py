@@ -315,5 +315,8 @@ if __name__=='__main__':
 			model.train_with_param_optimization(trainset, args.epochs, args.save_weights, HYPER_PARAM_OPT_ROUNDS if args.param_opt_rounds == 0 else args.param_opt_rounds)
 		else:
 			model.train(None, trainset, args.epochs, args.save_weights)
+	else:
+		# Use all instances to evaluate 
+		testset += trainset
 	queue.join()
 	model.eval(testset)
