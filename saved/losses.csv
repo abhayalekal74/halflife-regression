@@ -1,0 +1,5 @@
+331L grouping by minutes
+total_loss=1177520.8 (recall=159545.4, hl=1017975.4, l2=0.0) mae(recall)=0.405 cor(recall)=0.024 mae(hl)=7.980 cor(hl)=-0.112
+
+331L grouping by days
+total_loss=675818.0 (recall=63661.5, hl=612156.1, l2=0.5) mae(recall)=0.401 cor(recall)=0.057 mae(hl)=11.267 cor(hl)=-0.151

@@ -99,7 +99,7 @@ def read_data(df):
 		correct_attempts_all = 0
 		total_attempts_all = 0
 		#for sessionid, session_group in groupdf.groupby(['date']):
-		for sessionid, session_group in groupdf.groupby(['date', 'hour', 'min']):
+		for sessionid, session_group in groupdf.groupby(['date']):
 			session_name = "{}".format(sessionid)
 			total_attempts = len(session_group)
 			total_attempts_all += total_attempts
@@ -124,7 +124,7 @@ def read_data(df):
 			inst = Instance(actual_recall, actual_halflife, time_delta, feature_vector)
 			instances.append(inst)
 
-	splitpoint = int(0.8 * len(instances))
+	splitpoint = int(0.9 * len(instances))
 	trainset = instances[:splitpoint]
 	testset = instances[splitpoint:]
 	return trainset, testset
