@@ -28,7 +28,8 @@ CATEGORY_CHAPTER_JSON_PATH = os.path.join('data', 'category_chapter_map.json')
 
 WORKERS = 10
 
-Instance = namedtuple('Instance', ['recall', 'hl', 'time_delta', 'feature_vector'])
+Instance = namedtuple('Instance', ['userid', 'recall', 'hl', 'time_delta', 'chapterid', 'last_practiced_at', 'feature_vector'])
+Result = namedtuple('Result', ['userid', 'chapterid', 'last_practiced_at', 'recall', 'hl'])
 
 hyper_param_space = {
 						'lrate': hp.loguniform('lrate', np.log(.0001), np.log(.2)), 
@@ -80,6 +81,10 @@ def spearmanr(l1, l2):
 		return -1
 
 
+def get_hl_in_practice(recall, calculated_hl):
+	return max(MIN_HL, math.exp(recall * REC_MULTIPLIER) * calculated_hl)
+
+
 def generate_instances(df, is_training_phase):
 	print ("Reading data...")
 	instances = list()
@@ -102,9 +107,9 @@ def generate_instances(df, is_training_phase):
 			if is_training_phase and not prev_session_end:
 				prev_session_end = session_group['attempttime'].max()
 				continue
-			time_delta = to_days(session_begin_time - prev_session_end)
+			time_delta = MAX_HL if not prev_session_end else to_days(session_begin_time - prev_session_end)
+			actual_halflife = MAX_HL if not prev_session_end else halflife_clip(-time_delta / math.log(actual_recall, 2))
 			prev_session_end = session_group['attempttime'].max()
-			actual_halflife = halflife_clip(-time_delta / math.log(actual_recall, 2))
 
 			feature_vector = list()
 			feature_vector.append((sys.intern('right_all'), math.sqrt(1 + correct_attempts_all)))
@@ -114,12 +119,13 @@ def generate_instances(df, is_training_phase):
 			#feature_vector.append((sys.intern(userid), 1.))
 			feature_vector.append((sys.intern(examid), 1.))
 			feature_vector.append((sys.intern(str(chapterid)), 1.))
-			inst = Instance(actual_recall, actual_halflife, time_delta, feature_vector)
+			inst = Instance(userid, actual_recall, actual_halflife, time_delta, chapterid, prev_session_end, feature_vector)
 			instances.append(inst)
 
 	splitpoint = int(0.9 * len(instances)) if is_training_phase else 0
 	trainset = instances[:splitpoint]
 	testset = instances[splitpoint:]
+	print (len(instances), len(testset))
 	return trainset, testset
 
 
@@ -239,7 +245,7 @@ class HLRModel(object):
 			results['pred_hl'].append(hl)
 			results['sl_recall'].append(sl_recall)	  # loss function values
 			results['sl_hl'].append(sl_hl)
-			hl_in_practice = max(MIN_HL, math.exp(inst.recall * REC_MULTIPLIER) * hl)
+			hl_in_practice = get_hl_in_practice(inst.recall, hl) 
 			halflives_in_practice.append(hl_in_practice)
 			print ("\n\nrecall a:p {}:{}, hl  a:p {}:{}, hl_in_practice {} days, lag {}\nfeature_vec {}".format(inst.recall, recall, inst.hl, hl, hl_in_practice, inst.time_delta, inst.feature_vector))
 		graph_df = pd.DataFrame(list(zip(halflives_in_practice, recalls)), columns=['H', 'R'])
@@ -277,7 +283,8 @@ def get_final_df(df, convert_to_chapters, category_chapter_json_path = CATEGORY_
 	if convert_to_chapters:
 		category_chapter_map = defaultdict(lambda: float('nan'))
 		category_chapter_map.update(json.load(open(category_chapter_json_path)))
-		df['chapterid'] = df.apply(lambda row: category_chapter_map[str(row['categoryid'])], axis=1)
+		df['chapterid'] = df.apply(lambda row: category_chapter_map[str(int(row['categoryid']))], axis=1)
+	df.drop(columns=['categoryid'])
 	df.dropna()
 	df = df.sort_values(by=['attempttime'], ascending=True)
 	return df	
@@ -293,7 +300,12 @@ def run_inference(raw_df, saved_weights_path, convert_to_chapters=True):
 	df = get_final_df(raw_df, convert_to_chapters)
 	model, saved_weights = get_model(saved_weights_path)
 	_, instances = generate_instances(df, False)
-	model.eval(instances)
+	results = list()
+	for inst in instances:
+		_, hl = model.predict(inst)
+		hl_in_practice = get_hl_in_practice(inst.recall, hl) 
+		results.append(Result(inst.userid, inst.chapterid, inst.last_practiced_at, inst.recall, hl_in_practice))
+	return results
 
 
 if __name__=='__main__':
