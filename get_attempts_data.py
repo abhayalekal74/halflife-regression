@@ -1,46 +1,29 @@
 import json
 from tqdm import tqdm
 import sys
+import traceback
 import os
+import pandas as pd
 from elasticsearch import Elasticsearch
 from elasticsearch_dsl import Search
 from elasticsearch_dsl import Q
 
-es_client = None
 
-def get_es_client():
-	global es_client
-	if es_client is None:
-		es_client = Elasticsearch(os.getenv('ES_URL', "http://172.30.0.189"))
-	return es_client
+def get_attempts_es_index():
+	es_client = Elasticsearch(os.getenv('ATTEMPTS_ES_URL', "http://172.30.0.189"))
+	return Search(index='attempts1').using(es_client)
 
 
-def get_attempt_from_hit(hit):
-	return [hit["userid"], hit["examid"], hit["attempttime"], hit["id"], hit["iscorrect"], hit["difficulty"], hit["categoryid"]]
-
-
-def get_attempts_of_user(s, uid, size=100000):
+def get_attempts_of_user(user_id, get_attempts_after, size=100000):
+	attempts_df = pd.DataFrame()
 	try:
 		extras = dict(size = size)
-		query = s.filter('term', userid=uid).extra(**extras).source(["attempttime", "userid", "examid", "id", "iscorrect", "difficulty", "categoryid"])
+		query = get_attempts_es_index().filter('term', userid=user_id).filter('range', attempttime={'gte': get_attempts_after}).extra(**extras).source(["attempttime", "userid", "examid", "id", "iscorrect", "difficulty", "categoryid"])
 		res = query.execute()
 		if res:
-			for hit in res:
-				try:
-					print ("{},{},{},{},{},{},{}".format(hit["userid"], hit["examid"], hit["attempttime"], hit["id"], hit["iscorrect"], hit["difficulty"], cat_chap_map[str(hit["categoryid"])]))
-				except Exception:
-					pass
-		else:
-			print ("No data for {}".format(uid))
-	except Exception:
-		pass
-
-if __name__=='__main__':
-	get_es_client()
-	s = Search(index="attempt1").using(get_es_client())
-	cat_chap_map = json.load(open(sys.argv[2]))
-	with open(sys.argv[1]) as f:
-		lines = f.readlines()
-		for x in tqdm(range(len(lines))):
-			l = lines[x]
-			get_attempts_of_user(s, l.strip())
+			for attempt in res:
+				attempts_df.append(attempt, ignore_index=True)
+	except Exception as e:
+		print (e)
+		traceback.print_exc()
+	return attempts_df
