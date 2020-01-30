@@ -80,7 +80,7 @@ def spearmanr(l1, l2):
 		return -1
 
 
-def read_data(df, is_training_phase):
+def generate_instances(df, is_training_phase):
 	print ("Reading data...")
 	instances = list()
 	for groupid, groupdf in df.groupby(['userid', 'examid', 'chapterid']):
@@ -288,6 +288,14 @@ def get_model(saved_weights_path):
 	return HLRModel(initial_weights=saved_weights), saved_weights
 
 
+# Only method that is to be called from other classes for prediction on raw_df
+def run_inference(raw_df, saved_weights_path, convert_to_chapters=True):
+	df = get_final_df(raw_df, convert_to_chapters)
+	model, saved_weights = get_model(saved_weights_path)
+	_, instances = generate_instances(df, False)
+	model.eval(instances)
+
+
 if __name__=='__main__':
 	args = parse_args()
 	df = get_final_df(pd.read_csv(args.attempts_file), args.convert_to_chapters)
@@ -298,7 +306,7 @@ if __name__=='__main__':
 
 	is_training_phase = not saved_weights or (saved_weights is not None and args.train_further)
 
-	trainset, testset = read_data(df, is_training_phase)
+	trainset, testset = generate_instances(df, is_training_phase)
 	print ("trainset {}, testset {}".format(len(trainset), len(testset)))
 
 	if is_training_phase:	
