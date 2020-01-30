@@ -87,7 +87,7 @@ def spearmanr(l1, l2):
 		return -1
 
 
-def read_data(df):
+def read_data(df, is_training_phase):
 	print ("Reading data...")
 	instances = list()
 	for groupid, groupdf in df.groupby(['userid', 'examid', 'chapterid']):
@@ -111,10 +111,12 @@ def read_data(df):
 			correct_attempts_all += correct_attempts
 			actual_recall = recall_clip(float(correct_df['difficulty'].sum()) / session_group['difficulty'].sum())
 			session_begin_time = session_group['attempttime'].min()
-			time_delta = MAX_HL if not prev_session_end else to_days(session_begin_time - prev_session_end)
-			#time_delta = float('inf') if not prev_session_end else to_minutes(session_begin_time - prev_session_end)
-			actual_halflife = MAX_HL if time_delta == MAX_HL else halflife_clip(-time_delta / math.log(actual_recall, 2))
+			if is_training_phase and not prev_session_end:
+				prev_session_end = session_group['attempttime'].max()
+				continue
+			time_delta = to_days(session_begin_time - prev_session_end)
 			prev_session_end = session_group['attempttime'].max()
+			actual_halflife = halflife_clip(-time_delta / math.log(actual_recall, 2))
 
 			feature_vector = list()
 			feature_vector.append((sys.intern('right_all'), math.sqrt(1 + correct_attempts_all)))
@@ -308,9 +310,6 @@ if __name__=='__main__':
 	df.dropna()
 	df = df.sort_values(by=['attempttime'], ascending=True)
 
-	trainset, testset = read_data(df)
-	print ("trainset {}, testset {}".format(len(trainset), len(testset)))
-
 	queue = Queue()
 	lock = Lock()	
 
@@ -321,8 +320,12 @@ if __name__=='__main__':
 		saved_weights = None
 		model = HLRModel()
 
-	
-	if not saved_weights or (saved_weights is not None and args.train_further):
+	is_training_phase = not saved_weights or (saved_weights is not None and args.train_further)
+
+	trainset, testset = read_data(df, is_training_phase)
+	print ("trainset {}, testset {}".format(len(trainset), len(testset)))
+
+	if is_training_phase:	
 		if args.optimize_params or args.param_opt_rounds > 0:
 			model.train_with_param_optimization(trainset, args.epochs, args.save_weights, HYPER_PARAM_OPT_ROUNDS if args.param_opt_rounds == 0 else args.param_opt_rounds)
 		else:
@@ -330,5 +333,6 @@ if __name__=='__main__':
 	else:
 		# Use all instances to evaluate 
 		testset += trainset
+
 	queue.join()
 	model.eval(testset)
