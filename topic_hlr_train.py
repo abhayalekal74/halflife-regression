@@ -31,7 +31,7 @@ MAX_HL = 90.0 #days
 MIN_WEIGHT = 0.0001
 HYPER_PARAM_OPT_ROUNDS = 50
 LN2 = math.log(2.)
-REC_INFO_TO_USE = 0.35
+REC_MULTIPLIER = 3.5
 
 WORKERS = 10
 
@@ -262,8 +262,7 @@ class HLRModel(object):
 			results['pred_hl'].append(hl)
 			results['sl_recall'].append(sl_recall)	  # loss function values
 			results['sl_hl'].append(sl_hl)
-			#hl_in_practice = max(MIN_HL, (MAX_HL - (MAX_REC / (inst.recall * REC_INFO_TO_USE)) * hl))
-			hl_in_practice = min(MAX_HL, 5 * hl)
+			hl_in_practice = max(MIN_HL, math.exp(inst.recall * REC_MULTIPLIER) * hl)
 			halflives_in_practice.append(hl_in_practice)
 			print ("\n\nrecall a:p {}:{}, hl  a:p {}:{}, hl_in_practice {} days, lag {}\nfeature_vec {}".format(inst.recall, recall, inst.hl, hl, hl_in_practice, inst.time_delta, inst.feature_vector))
 		graph_df = pd.DataFrame(list(zip(halflives_in_practice, recalls)), columns=['H', 'R'])
