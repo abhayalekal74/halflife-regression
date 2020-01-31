@@ -81,6 +81,10 @@ def spearmanr(l1, l2):
 		return -1
 
 
+def get_recall(hl, lag):
+	return 2 ** (-lag/hl)
+
+
 def get_hl_in_practice(recall, calculated_hl):
 	return max(MIN_HL, math.exp(recall * REC_MULTIPLIER) * calculated_hl)
 
@@ -152,7 +156,7 @@ class HLRModel(object):
 
 	def predict(self, inst, base=2.):
 		halflife = self.halflife(inst, base)
-		recall = 2. ** (-inst.time_delta / halflife)
+		recall = get_recall(halflife, inst.time_delta)
 		return recall_clip(recall), halflife
 
 
