@@ -7,26 +7,14 @@ WEIGHTS_PATH = "saved_weights.csv"
 
 
 errors = {
-	"no_data": "No new attempts"
+	"no_data": "No data"
 }
 
 
 def calculate_current_recall(hl, last_practiced_at):
-	lag_in_ms = datetime.now().timestamp() - last_practiced_at
+	lag_in_ms = datetime.now().timestamp() * 1000 - last_practiced_at
 	lag_in_days = model_functions.to_days(lag_in_ms)
 	return model_functions.get_recall(hl, lag_in_days)
-
-
-def update_db(results):
-	pass
-
-
-def get_all_chapters_data_for_user_from_db(user_id):
-	pass
-
-
-def get_chapter_data_for_user_from_db(user_id, chapter_id):
-	pass
 
 
 def get_attempts_and_run_inference(user_id, t):
@@ -34,8 +22,7 @@ def get_attempts_and_run_inference(user_id, t):
 	if len(attempts_df) == 0:
 		return errors['no_data'] 
 	results = model_functions.run_inference(attempts_df, WEIGHTS_PATH)
-	update_db(results)
-	return 1
+	return presenter.write_to_hlr_index(user_id, results)
 
 
 def run_on_last_x_days_attempts(user_id, x = model_functions.MAX_HL):
@@ -45,22 +32,32 @@ def run_on_last_x_days_attempts(user_id, x = model_functions.MAX_HL):
 	
 
 def run_on_todays_attempts(user_id):
-	today_start_ms = int(datetime.combine(datetime.today(), time.min).timestamp() * 1000)
-	return get_attempts_and_run_inference(user_id, today_start_ms)
+	if presenter.past_attempts_fetched(user_id):
+		today_start_ms = int(datetime.combine(datetime.today(), time.min).timestamp() * 1000)
+		return get_attempts_and_run_inference(user_id, today_start_ms)
+	else:
+		return run_on_last_x_days_attempts(user_id)
 
 
 def get_all_chapters_data(user_id):
-	rows = get_all_chapters_data_for_user_from_db(user_id)
+	rows = presenter.get_all_chapters_for_user(user_id)
 	response = dict()
 	for row in rows:
+		row = row._asdict()
 		response[int(row['chapterid'])] = calculate_current_recall(row['hl'], row['last_practiced_at']) 
 	return response
 
 
 def get_chapter_data(user_id, chapter_id):
-	row = get_chapter_data_for_user_from_db(user_id, chapter_id)
-	return calculate_current_recall(row['hl', row['last_practiced_at'])
+	result = presenter.get_chapter_for_user(user_id, chapter_id)
+	if result:
+		result = result._asdict()
+		return calculate_current_recall(result['hl'], result['last_practiced_at'])
+	else:
+		return errors['no_data']
 
 
 if __name__=='__main__':
 	run_on_todays_attempts("b22b9a30-5c3a-11e7-9529-f35d12faee88")
+	print(get_all_chapters_data("b22b9a30-5c3a-11e7-9529-f35d12faee88"))
+	print(get_chapter_data("b22b9a30-5c3a-11e7-9529-f35d12faee88", 7151))
