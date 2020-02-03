@@ -11,16 +11,18 @@ errors = {
 }
 
 
-def calculate_current_recall(hl, last_practiced_at):
+def calculate_current_recall(hl, last_practiced_at, original_recall):
 	lag_in_ms = datetime.now().timestamp() * 1000 - last_practiced_at
 	lag_in_days = model_functions.to_days(lag_in_ms)
-	return model_functions.get_recall(hl, lag_in_days)
+	# Multiplying by original recall because the recall calculated with hl and last_practiced_at is for original_recall of 1. But since we don't reset the recall to 1 after every session, we have to multiply it by original recall.
+	return model_functions.get_recall(hl, lag_in_days) * original_recall
 
 
 def get_attempts_and_run_inference(user_id, t):
 	attempts_df = presenter.get_attempts_of_user(user_id, t)
 	if len(attempts_df) == 0:
 		return errors['no_data'] 
+	print ("Attempts", len(attempts_df))
 	results = model_functions.run_inference(attempts_df, WEIGHTS_PATH)
 	return presenter.write_to_hlr_index(user_id, results)
 
@@ -44,7 +46,7 @@ def get_all_chapters_data(user_id):
 	response = dict()
 	for row in rows:
 		row = row._asdict()
-		response[int(row['chapterid'])] = calculate_current_recall(row['hl'], row['last_practiced_at']) 
+		response[int(row['chapterid'])] = calculate_current_recall(row['hl'], row['last_practiced_at'], row['recall']) 
 	return response
 
 
@@ -52,7 +54,7 @@ def get_chapter_data(user_id, chapter_id):
 	result = presenter.get_chapter_for_user(user_id, chapter_id)
 	if result:
 		result = result._asdict()
-		return calculate_current_recall(result['hl'], result['last_practiced_at'])
+		return calculate_current_recall(result['hl'], result['last_practiced_at'], result['recall'])
 	else:
 		return errors['no_data']
 
