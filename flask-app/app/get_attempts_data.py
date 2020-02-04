@@ -5,7 +5,7 @@ import traceback
 import os
 import pandas as pd
 from collections import namedtuple
-from topic_hlr_train import Result
+from app import topic_hlr_train
 from cassandra.cluster import Cluster
 from cassandra.query import BatchStatement, SimpleStatement
 from elasticsearch import Elasticsearch
@@ -92,7 +92,7 @@ def get_all_chapters_for_user(user_id):
 	res = cassandra_session.execute("SELECT * FROM {} WHERE user_id='{}'".format(CASSANDRA_HLR_TABLE, user_id))
 	chapters_data = list()
 	for chapter in res:
-		chapters_data.append(Result(chapter.user_id, chapter.entity_id, chapter.last_practiced_at, chapter.recall, chapter.hl))
+		chapters_data.append(topic_hlr_train.Result(chapter.user_id, chapter.entity_id, chapter.last_practiced_at, chapter.recall, chapter.hl))
 	return chapters_data
 
 
@@ -100,7 +100,7 @@ def get_chapter_for_user(user_id, chapter_id):
 	cassandra_cluster, cassandra_session = get_hlr_cassandra_session()
 	res = cassandra_session.execute("SELECT * FROM {} WHERE user_id='{}' and entity_type='{}' and entity_id={}".format(CASSANDRA_HLR_TABLE, user_id, 'chapter', chapter_id))
 	if res:
-		return Result(res[0].user_id, res[0].entity_id, res[0].last_practiced_at, res[0].recall, res[0].hl)
+		return topic_hlr_train.Result(res[0].user_id, res[0].entity_id, res[0].last_practiced_at, res[0].recall, res[0].hl)
 	return None
 
 

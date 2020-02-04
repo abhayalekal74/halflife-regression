@@ -24,7 +24,7 @@ MIN_WEIGHT = 0.0001
 HYPER_PARAM_OPT_ROUNDS = 50
 LN2 = math.log(2.)
 REC_MULTIPLIER = 3.5
-CATEGORY_CHAPTER_JSON_PATH = os.path.join('data', 'category_chapter_map.json')
+CATEGORY_CHAPTER_JSON_PATH = os.path.join('app', 'category_chapter_map.json')
 
 WORKERS = 10
 
