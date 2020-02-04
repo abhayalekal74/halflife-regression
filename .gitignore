@@ -5,3 +5,4 @@
 nohup.out
 results/
 data/
+flask-app/app/__pycache__/
