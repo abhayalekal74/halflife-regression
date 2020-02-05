@@ -8,6 +8,7 @@ from collections import namedtuple
 from app import topic_hlr_train
 from cassandra.cluster import Cluster
 from cassandra.query import BatchStatement, SimpleStatement
+from cassandra.auth import PlainTextAuthProvider
 from elasticsearch import Elasticsearch
 from elasticsearch_dsl import Search
 from elasticsearch_dsl import Q
@@ -33,7 +34,8 @@ def get_attempts_es_index():
 def get_hlr_cassandra_session():
 	global cassandra_cluster, cassandra_session
 	if not cassandra_cluster:
-		cassandra_cluster = Cluster([os.getenv('CASSANDRA_URL', '172.30.0.8')])
+		auth = PlainTextAuthProvider(username=os.getenv('CASSANDRA_USER', ''), password=os.getenv('CASSANDRA_PASS', ''))
+		cassandra_cluster = Cluster([os.getenv('CASSANDRA_URL', '172.30.0.8')], protocol_version=2, auth_provider=auth)
 		cassandra_session = cassandra_cluster.connect()
 		create_keyspace(cassandra_session)
 		cassandra_session.set_keyspace(CASSANDRA_HLR_KEYSPACE)
