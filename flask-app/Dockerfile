@@ -1,6 +1,6 @@
 FROM python:3.7 
 
-RUN apt-get update && apt-get install -y libatlas-base-dev gfortran nginx supervisor
+RUN apt-get update && apt-get install -y libatlas-base-dev gfortran nginx supervisor build-essential tcl redis-server
 
 COPY requirements.txt requirements.txt
 
@@ -14,8 +14,6 @@ COPY nginx.conf /etc/nginx/
 COPY flask-site-nginx.conf /etc/nginx/conf.d/
 COPY uwsgi.ini /etc/uwsgi/
 COPY supervisord.conf /etc/
-
-CMD sh configure_redis.sh
 
 COPY . .
 

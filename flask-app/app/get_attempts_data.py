@@ -33,7 +33,7 @@ def get_attempts_es_index():
 def get_hlr_cassandra_session():
 	global cassandra_cluster, cassandra_session
 	if not cassandra_cluster:
-		cassandra_cluster = Cluster([os.getenv('SECONDARY_CASSANDRA', '127.0.0.1')])
+		cassandra_cluster = Cluster([os.getenv('CASSANDRA_URL', '172.30.0.8')])
 		cassandra_session = cassandra_cluster.connect()
 		create_keyspace(cassandra_session)
 		cassandra_session.set_keyspace(CASSANDRA_HLR_KEYSPACE)
