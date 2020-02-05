@@ -6,3 +6,4 @@ nohup.out
 results/
 data/
 flask-app/app/__pycache__/
+*__pycache__/

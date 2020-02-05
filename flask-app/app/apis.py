@@ -1,8 +1,8 @@
 from flask import request, jsonify
 from app import app
-from celery_config import celery
 from app import get_attempts_data as presenter
 from app import topic_hlr_train as model_functions
+from app import celery_tasks
 from datetime import datetime, time, timedelta
 import os
 
@@ -23,19 +23,10 @@ def calculate_current_recall(hl, last_practiced_at, original_recall):
 	return model_functions.get_recall(hl, lag_in_days) * original_recall
 
 
-@celery.task
-def get_attempts_and_run_inference(user_id, t):
-	attempts_df = presenter.get_attempts_of_user(user_id, t)
-	if len(attempts_df) > 0:
-		results = model_functions.run_inference(attempts_df, WEIGHTS_PATH)
-		presenter.write_to_hlr_index(user_id, results)
-	print ("get_attempts_and_run_inference: userid: {}, attempts: {}, ts: {}".format(user_id, len(attempts_df), t))
-
-
 def run_on_last_x_days_attempts(user_id, x = model_functions.MAX_HL):
 	t_minus_x = datetime.now() - timedelta(days=x)
 	t_minus_x_in_ms = int(t_minus_x.timestamp() * 1000)
-	task = get_attempts_and_run_inference.apply_async(args=[user_id, t_minus_x_in_ms])
+	task = celery_tasks.get_attempts_and_run_inference.apply_async(args=[user_id, t_minus_x_in_ms])
 	print ("Task ID", task)
 	
 
@@ -46,7 +37,7 @@ def run_on_todays_attempts():
 	if presenter.past_attempts_fetched(user_id):
 		print ("Getting today's attempts")
 		today_start_ms = int(datetime.combine(datetime.today(), time.min).timestamp() * 1000)
-		get_attempts_and_run_inference.delay(user_id, today_start_ms)
+		celery_tasks.get_attempts_and_run_inference.delay(user_id, today_start_ms)
 	else:
 		print ("Getting x days' attempts")
 		run_on_last_x_days_attempts(user_id)
@@ -77,3 +68,5 @@ def get_chapter_data():
 		return jsonify(success=True, recall=calculate_current_recall(result['hl'], result['last_practiced_at'], result['recall']))
 	else:
 		return jsonify(success=False, error=errors['no_data'])
+
+
