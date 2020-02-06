@@ -18,6 +18,9 @@ CASSANDRA_HLR_KEYSPACE = 'hlr'
 CASSANDRA_HLR_TABLE = 'entitywise_data'
 CASSANDRA_USER_META_TABLE = 'user_meta'
 
+CASSANDRA_USER = "cassandra"
+CASSANDRA_PASS = "cassandra"
+
 attempts_es_index = None
 cassandra_cluster = None
 cassandra_session = None
@@ -34,8 +37,8 @@ def get_attempts_es_index():
 def get_hlr_cassandra_session():
 	global cassandra_cluster, cassandra_session
 	if not cassandra_cluster:
-		auth = PlainTextAuthProvider(username=os.getenv('CASSANDRA_USER', ''), password=os.getenv('CASSANDRA_PASS', ''))
-		cassandra_cluster = Cluster([os.getenv('CASSANDRA_URL', '172.30.0.8')], protocol_version=2, auth_provider=auth)
+		auth = PlainTextAuthProvider(username=os.getenv('CASSANDRA_USER', CASSANDRA_USER), password=os.getenv('CASSANDRA_PASS', CASSANDRA_PASS))
+		cassandra_cluster = Cluster([os.getenv('CASSANDRA_URL', '172.30.0.91')], auth_provider=auth)
 		cassandra_session = cassandra_cluster.connect()
 		create_keyspace(cassandra_session)
 		cassandra_session.set_keyspace(CASSANDRA_HLR_KEYSPACE)
