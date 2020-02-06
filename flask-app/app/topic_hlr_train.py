@@ -89,16 +89,17 @@ def get_hl_in_practice(recall, calculated_hl):
 	return max(MIN_HL, math.exp(recall * REC_MULTIPLIER) * calculated_hl)
 
 
-def generate_instances(df, is_training_phase):
+def generate_instances(df, is_training_phase, last_practiced_map=None):
 	print ("Reading data...")
 	instances = list()
 	for groupid, groupdf in df.groupby(['userid', 'examid', 'chapterid']):
-		prev_session_end = None
 		userid = groupid[0]
 		examid = groupid[1]
 		chapterid = groupid[2]
 		correct_attempts_all = 0
 		total_attempts_all = 0
+		prev_session_end = None if not last_practiced_map else last_practiced_map.get(int(chapterid), None)
+		print ("prev_session_end for {}: {}".format(chapterid, prev_session_end))
 		for sessionid, session_group in groupdf.groupby(['date']):
 			session_name = "{}".format(sessionid)
 			total_attempts = len(session_group)
@@ -129,7 +130,7 @@ def generate_instances(df, is_training_phase):
 	splitpoint = int(0.9 * len(instances)) if is_training_phase else 0
 	trainset = instances[:splitpoint]
 	testset = instances[splitpoint:]
-	print (len(instances), len(testset))
+	print ("Total generated instances".format(len(instances)))
 	return trainset, testset
 
 
@@ -300,10 +301,10 @@ def get_model(saved_weights_path):
 
 
 # Only method that is to be called from other classes for prediction on raw_df
-def run_inference(raw_df, saved_weights_path, convert_to_chapters=True):
+def run_inference(raw_df, saved_weights_path, last_practiced_map, convert_to_chapters=True):
 	df = get_final_df(raw_df, convert_to_chapters)
 	model, saved_weights = get_model(saved_weights_path)
-	_, instances = generate_instances(df, False)
+	_, instances = generate_instances(df, False, last_practiced_map=last_practiced_map)
 	results = list()
 	for inst in instances:
 		_, hl = model.predict(inst)

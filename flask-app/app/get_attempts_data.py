@@ -82,6 +82,18 @@ def past_attempts_fetched(user_id):
 	return len(results.current_rows) > 0
 
 
+def get_last_practiced(user_id, entity_type):
+	_, cassandra_session = get_hlr_cassandra_session()
+	query = "SELECT entity_id, last_practiced_at from {} where user_id='{}' and entity_type='{}'".format(CASSANDRA_HLR_TABLE, user_id, entity_type)
+	results = cassandra_session.execute(query)
+	if len(results.current_rows) > 0:
+		data = dict()
+		for row in results:
+			data[int(row.entity_id)] = int(row.last_practiced_at)
+		return data
+	return None
+
+
 def write_to_hlr_index(user_id, results):
 	cassandra_cluster, cassandra_session = get_hlr_cassandra_session()
 	batch = BatchStatement()

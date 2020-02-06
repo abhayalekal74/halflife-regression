@@ -8,10 +8,11 @@ WEIGHTS_PATH = os.path.join('app', 'saved_weights.csv')
 
 
 @celery.task
-def get_attempts_and_run_inference(user_id, t):
+def get_attempts_and_run_inference(user_id, t, entity_type):
 	attempts_df = presenter.get_attempts_of_user(user_id, t)
 	if len(attempts_df) > 0:
-		results = model_functions.run_inference(attempts_df, WEIGHTS_PATH)
+		last_practiced_map = presenter.get_last_practiced(user_id, entity_type)
+		results = model_functions.run_inference(attempts_df, WEIGHTS_PATH, last_practiced_map)
 		presenter.write_to_hlr_index(user_id, results)
 	print ("get_attempts_and_run_inference: userid: {}, attempts: {}, ts: {}".format(user_id, len(attempts_df), t))
 
