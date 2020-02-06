@@ -16,3 +16,16 @@ def get_attempts_and_run_inference(user_id, t_start, t_end, entity_type, todays_
 		presenter.write_to_hlr_index(user_id, results, todays_attempts)
 	print ("get_attempts_and_run_inference: userid: {}, attempts: {}, t_start: {}, t_end: {}".format(user_id, len(attempts_df), t_start, t_end))
 
+
+@celery.task
+def update_last_practiced_before_today():
+	presenter.update_last_practiced_before_today()
+
+
+@celery.on_after_configure.connect
+def setup_periodic_tasks(sender, **kwargs):
+	sender.add_periodic_task(
+		crontab(hour=0, minute=0),
+		update_last_practiced_before_today
+	)
+		

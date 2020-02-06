@@ -106,6 +106,16 @@ def write_to_hlr_index(user_id, results, todays_attempts):
 	cassandra_session.execute("UPDATE {} SET past_attempts_fetched=1 WHERE user_id='{}'".format(CASSANDRA_USER_META_TABLE, user_id))
 	
 
+def update_last_practiced_before_today():
+	cassandra_cluster, cassandra_session = get_hlr_cassandra_session()
+	results = cassandra_session.execute("SELECT * FROM {} WHERE last_practiced_today > 0".format(CASSANDRA_HLR_TABLE))
+	batch = BatchStatement()
+	update_row = cassandra_session.prepare("UPDATE entitywise_data SET last_practiced_before_today=?, last_practiced_today=? WHERE user_id=? and entity_type=? and entity_id=?")
+	for result in results:
+		batch.add(update_row, (result.last_practiced_today, 0, result.user_id, result.entity_type, result.entity_id))
+	cassandra_session.execute(batch)
+
+
 def get_all_chapters_for_user(user_id):
 	cassandra_cluster, cassandra_session = get_hlr_cassandra_session()
 	return cassandra_session.execute("SELECT * FROM {} WHERE user_id='{}'".format(CASSANDRA_HLR_TABLE, user_id))
