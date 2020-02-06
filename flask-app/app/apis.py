@@ -25,10 +25,10 @@ def calculate_current_recall(hl, last_practiced_at, original_recall):
 	return float(round(current_recall, 3))
 
 
-def run_on_last_x_days_attempts(user_id, entity_type, x = model_functions.MAX_HL):
+def run_on_last_x_days_attempts(user_id, entity_type, x = model_functions.MAX_HL, attempts_up_to=None):
 	t_minus_x = datetime.now() - timedelta(days=x)
 	t_minus_x_in_ms = int(t_minus_x.timestamp() * 1000)
-	task = celery_tasks.get_attempts_and_run_inference.apply_async(args=[user_id, t_minus_x_in_ms, entity_type])
+	task = celery_tasks.get_attempts_and_run_inference.apply_async(args=[user_id, t_minus_x_in_ms, attempts_up_to, entity_type, False])
 	print ("Task ID", task)
 	
 
@@ -36,13 +36,12 @@ def run_on_last_x_days_attempts(user_id, entity_type, x = model_functions.MAX_HL
 def run_on_todays_attempts():
 	user_id = request.form['userid'] 
 	attempts_fetched = False
-	if presenter.past_attempts_fetched(user_id):
-		print ("Getting today's attempts")
-		today_start_ms = int(datetime.combine(datetime.today(), time.min).timestamp() * 1000)
-		celery_tasks.get_attempts_and_run_inference.delay(user_id, today_start_ms, 'chapter')
-	else:
+	today_start_ms = int(datetime.combine(datetime.today(), time.min).timestamp() * 1000)
+	if not presenter.past_attempts_fetched(user_id):
 		print ("Getting x days' attempts")
-		run_on_last_x_days_attempts(user_id, 'chapter')
+		run_on_last_x_days_attempts(user_id, 'chapter', attempts_up_to=today_start_ms)
+	print ("Getting today's attempts")
+	celery_tasks.get_attempts_and_run_inference.delay(user_id, today_start_ms, int(datetime.now().timestamp() * 1000), 'chapter', True)
 	return jsonify(success=True)
 
 
@@ -50,11 +49,11 @@ def run_on_todays_attempts():
 def get_all_chapters_data():
 	user_id = request.args['userid']
 	rows = presenter.get_all_chapters_for_user(user_id)
-	response = dict()
-	for row in rows:
-		row = row._asdict()
-		response[int(row['chapterid'])] = calculate_current_recall(row['hl'], row['last_practiced_at'], row['recall']) 
-	if response:
+	if rows:
+		response = dict()
+		for row in rows:
+			last_practiced_at = max(row.last_practiced_before_today, row.last_practiced_today)
+			response[int(row.chapter_id)] = calculate_current_recall(row.hl, last_practiced_at, row.recall) 
 		return jsonify(success=True, data=response)
 	else:
 		return jsonify(success=False, error=errors['no_data'])
@@ -66,8 +65,8 @@ def get_chapter_data():
 	chapter_id = request.args['chapterid']
 	result = presenter.get_chapter_for_user(user_id, chapter_id)
 	if result:
-		result = result._asdict()
-		return jsonify(success=True, recall=calculate_current_recall(result['hl'], result['last_practiced_at'], result['recall']))
+		last_practiced_at = max(row.last_practiced_before_today, row.last_practiced_today)
+		return jsonify(success=True, recall=calculate_current_recall(result.hl, last_practiced_at, result.recall))
 	else:
 		return jsonify(success=False, error=errors['no_data'])
 

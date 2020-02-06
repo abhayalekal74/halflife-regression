@@ -62,7 +62,8 @@ def create_table(cassandra_session):
 			user_id text,
 			entity_type text,
 			entity_id int,
-			last_practiced_at bigint,
+			last_practiced_before_today bigint,
+			last_practiced_today bigint,
 			hl float,
 			recall float,
 			PRIMARY KEY (user_id, entity_type, entity_id)
@@ -84,20 +85,20 @@ def past_attempts_fetched(user_id):
 
 def get_last_practiced(user_id, entity_type):
 	_, cassandra_session = get_hlr_cassandra_session()
-	query = "SELECT entity_id, last_practiced_at from {} where user_id='{}' and entity_type='{}'".format(CASSANDRA_HLR_TABLE, user_id, entity_type)
+	query = "SELECT entity_id, last_practiced_before_today from {} where user_id='{}' and entity_type='{}'".format(CASSANDRA_HLR_TABLE, user_id, entity_type)
 	results = cassandra_session.execute(query)
 	if len(results.current_rows) > 0:
 		data = dict()
 		for row in results:
-			data[int(row.entity_id)] = int(row.last_practiced_at)
+			data[int(row.entity_id)] = int(row.last_practiced_before_today)
 		return data
 	return None
 
 
-def write_to_hlr_index(user_id, results):
+def write_to_hlr_index(user_id, results, todays_attempts):
 	cassandra_cluster, cassandra_session = get_hlr_cassandra_session()
 	batch = BatchStatement()
-	update_row = cassandra_session.prepare("UPDATE entitywise_data SET last_practiced_at=?, hl=?, recall=? WHERE user_id=? and entity_type=? and entity_id=?")
+	update_row = cassandra_session.prepare("UPDATE entitywise_data SET {}=?, hl=?, recall=? WHERE user_id=? and entity_type=? and entity_id=?".format('last_practiced_today' if todays_attempts else 'last_practiced_before_today'))
 	for row in results:
 		row = row._asdict()
 		batch.add(update_row, (int(row['last_practiced_at']), row['hl'], row['recall'], row['userid'], 'chapter', int(row['chapterid'])))
@@ -107,26 +108,20 @@ def write_to_hlr_index(user_id, results):
 
 def get_all_chapters_for_user(user_id):
 	cassandra_cluster, cassandra_session = get_hlr_cassandra_session()
-	res = cassandra_session.execute("SELECT * FROM {} WHERE user_id='{}'".format(CASSANDRA_HLR_TABLE, user_id))
-	chapters_data = list()
-	for chapter in res:
-		chapters_data.append(topic_hlr_train.Result(chapter.user_id, chapter.entity_id, chapter.last_practiced_at, chapter.recall, chapter.hl))
-	return chapters_data
+	return cassandra_session.execute("SELECT * FROM {} WHERE user_id='{}'".format(CASSANDRA_HLR_TABLE, user_id))
 
 
 def get_chapter_for_user(user_id, chapter_id):
 	cassandra_cluster, cassandra_session = get_hlr_cassandra_session()
-	res = cassandra_session.execute("SELECT * FROM {} WHERE user_id='{}' and entity_type='{}' and entity_id={}".format(CASSANDRA_HLR_TABLE, user_id, 'chapter', chapter_id))
-	if res:
-		return topic_hlr_train.Result(res[0].user_id, res[0].entity_id, res[0].last_practiced_at, res[0].recall, res[0].hl)
-	return None
+	rows = cassandra_session.execute("SELECT * FROM {} WHERE user_id='{}' and entity_type='{}' and entity_id={}".format(CASSANDRA_HLR_TABLE, user_id, 'chapter', chapter_id))
+	return rows[0] if rows else None
 
 
-def get_attempts_of_user(user_id, get_attempts_after, size=100000):
+def get_attempts_of_user(user_id, t_start, t_end, size=100000):
 	attempts_df = pd.DataFrame()
 	try:
 		extras = dict(size = size)
-		query = get_attempts_es_index().filter('term', userid=user_id).filter('range', attempttime={'gte': get_attempts_after}).extra(**extras).source(["attempttime", "userid", "examid", "id", "iscorrect", "difficulty", "categoryid"])
+		query = get_attempts_es_index().filter('term', userid=user_id).filter('range', attempttime={'gte': t_start, 'lte': t_end}).extra(**extras).source(["attempttime", "userid", "examid", "id", "iscorrect", "difficulty", "categoryid"])
 		res = query.execute()
 		if res:
 			for attempt in res:
