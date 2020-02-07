@@ -20,12 +20,3 @@ def get_attempts_and_run_inference(user_id, t_start, t_end, entity_type, todays_
 @celery.task
 def update_last_practiced_before_today():
 	presenter.update_last_practiced_before_today()
-
-
-@celery.on_after_configure.connect
-def setup_periodic_tasks(sender, **kwargs):
-	sender.add_periodic_task(
-		crontab(hour=0, minute=0),
-		update_last_practiced_before_today
-	)
-		

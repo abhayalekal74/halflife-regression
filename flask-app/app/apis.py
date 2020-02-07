@@ -45,6 +45,15 @@ def run_on_todays_attempts():
 	return jsonify(success=True)
 
 
+def get_latest_attempt_time(t1, t2):
+	if not t1:
+		return t2
+	elif not t2:
+		return t1
+	else:
+		return max(t1, t2)
+
+
 @app.route('/recall/all_chapters', methods=['GET'])
 def get_all_chapters_data():
 	user_id = request.args['userid']
@@ -52,8 +61,8 @@ def get_all_chapters_data():
 	if rows:
 		response = dict()
 		for row in rows:
-			last_practiced_at = max(row.last_practiced_before_today, row.last_practiced_today)
-			response[int(row.chapter_id)] = calculate_current_recall(row.hl, last_practiced_at, row.recall) 
+			last_practiced_at = get_latest_attempt_time(row.last_practiced_before_today, row.last_practiced_today)
+			response[int(row.entity_id)] = calculate_current_recall(row.hl, last_practiced_at, row.recall) 
 		return jsonify(success=True, data=response)
 	else:
 		return jsonify(success=False, error=errors['no_data'])
@@ -65,7 +74,7 @@ def get_chapter_data():
 	chapter_id = request.args['chapterid']
 	result = presenter.get_chapter_for_user(user_id, chapter_id)
 	if result:
-		last_practiced_at = max(row.last_practiced_before_today, row.last_practiced_today)
+		last_practiced_at = get_latest_attempt_time(row.last_practiced_before_today, row.last_practiced_today)
 		return jsonify(success=True, recall=calculate_current_recall(result.hl, last_practiced_at, result.recall))
 	else:
 		return jsonify(success=False, error=errors['no_data'])

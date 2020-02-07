@@ -17,6 +17,7 @@ from elasticsearch_dsl import Q
 CASSANDRA_HLR_KEYSPACE = 'hlr'
 CASSANDRA_HLR_TABLE = 'entitywise_data'
 CASSANDRA_USER_META_TABLE = 'user_meta'
+CASSANDRA_TODAYS_ATTEMPTS = "today_attempts"
 
 CASSANDRA_USER = "cassandra"
 CASSANDRA_PASS = "cassandra"
@@ -75,6 +76,15 @@ def create_table(cassandra_session):
 			past_attempts_fetched int
 		)
 	""".format(CASSANDRA_USER_META_TABLE))
+	cassandra_session.execute("""
+		CREATE TABLE IF NOT EXISTS {} (
+			user_id text,
+			entity_type text,
+			entity_id int,
+			last_practiced_at bigint,
+			PRIMARY KEY (user_id, entity_type, entity_id)
+		)
+	""".format(CASSANDRA_TODAYS_ATTEMPTS))
 
 
 def past_attempts_fetched(user_id):
@@ -98,7 +108,7 @@ def get_last_practiced(user_id, entity_type):
 def write_to_hlr_index(user_id, results, todays_attempts):
 	cassandra_cluster, cassandra_session = get_hlr_cassandra_session()
 	batch = BatchStatement()
-	update_row = cassandra_session.prepare("UPDATE entitywise_data SET {}=?, hl=?, recall=? WHERE user_id=? and entity_type=? and entity_id=?".format('last_practiced_today' if todays_attempts else 'last_practiced_before_today'))
+	update_row = cassandra_session.prepare("UPDATE {} SET {}=?, hl=?, recall=? WHERE user_id=? and entity_type=? and entity_id=?".format(CASSANDRA_HLR_TABLE, 'last_practiced_today' if todays_attempts else 'last_practiced_before_today'))
 	for row in results:
 		row = row._asdict()
 		batch.add(update_row, (int(row['last_practiced_at']), row['hl'], row['recall'], row['userid'], 'chapter', int(row['chapterid'])))
@@ -108,12 +118,15 @@ def write_to_hlr_index(user_id, results, todays_attempts):
 
 def update_last_practiced_before_today():
 	cassandra_cluster, cassandra_session = get_hlr_cassandra_session()
-	results = cassandra_session.execute("SELECT * FROM {} WHERE last_practiced_today > 0".format(CASSANDRA_HLR_TABLE))
+	results = cassandra_session.execute("SELECT * FROM {}".format(CASSANDRA_TODAYS_ATTEMPTS))
+	print ("Updating last practiced time in {} rows".format(len(results.current_rows)))
 	batch = BatchStatement()
-	update_row = cassandra_session.prepare("UPDATE entitywise_data SET last_practiced_before_today=?, last_practiced_today=? WHERE user_id=? and entity_type=? and entity_id=?")
+	update_row = cassandra_session.prepare("UPDATE {} SET last_practiced_before_today=?, last_practiced_today=? WHERE user_id=? and entity_type=? and entity_id=?".format(CASSANDRA_HLR_TABLE))
 	for result in results:
-		batch.add(update_row, (result.last_practiced_today, 0, result.user_id, result.entity_type, result.entity_id))
+		batch.add(update_row, (result.last_practiced_at, 0, result.user_id, result.entity_type, result.entity_id))
 	cassandra_session.execute(batch)
+	print ("Truncating {}".format(CASSANDRA_TODAYS_ATTEMPTS))
+	cassandra_session.execute('TRUNCATE {}'.format(CASSANDRA_TODAYS_ATTEMPTS))
 
 
 def get_all_chapters_for_user(user_id):

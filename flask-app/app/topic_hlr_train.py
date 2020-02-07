@@ -130,7 +130,7 @@ def generate_instances(df, is_training_phase, last_practiced_map=None):
 	splitpoint = int(0.9 * len(instances)) if is_training_phase else 0
 	trainset = instances[:splitpoint]
 	testset = instances[splitpoint:]
-	print ("Total generated instances".format(len(instances)))
+	print ("Total generated instances {}".format(len(instances)))
 	return trainset, testset
 
 
