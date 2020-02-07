@@ -113,7 +113,16 @@ def write_to_hlr_index(user_id, results, todays_attempts):
 		row = row._asdict()
 		batch.add(update_row, (int(row['last_practiced_at']), row['hl'], row['recall'], row['userid'], 'chapter', int(row['chapterid'])))
 	cassandra_session.execute(batch)
-	cassandra_session.execute("UPDATE {} SET past_attempts_fetched=1 WHERE user_id='{}'".format(CASSANDRA_USER_META_TABLE, user_id))
+	if todays_attempts:
+		store_todays_attempts = cassandra_session.prepare("UPDATE {} set last_practiced_at=? WHERE user_id=? and entity_type=? and entity_id=?".format(CASSANDRA_TODAYS_ATTEMPTS))	
+		todays_attempts_batch = BatchStatement()
+		for row in results:
+			row = row._asdict()
+			todays_attempts_batch.add(store_todays_attempts, (int(row['last_practiced_at']), row['userid'], 'chapter', int(row['chapterid'])))
+		cassandra_session.execute(todays_attempts_batch)
+	else:
+		# Set past_attempts_fetched to 1 
+		cassandra_session.execute("UPDATE {} SET past_attempts_fetched=1 WHERE user_id='{}'".format(CASSANDRA_USER_META_TABLE, user_id))
 	
 
 def update_last_practiced_before_today():
