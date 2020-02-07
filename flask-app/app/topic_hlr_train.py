@@ -23,7 +23,7 @@ MAX_HL = 90.0 #days
 MIN_WEIGHT = 0.0001
 HYPER_PARAM_OPT_ROUNDS = 50
 LN2 = math.log(2.)
-REC_MULTIPLIER = 3.5
+REC_MULTIPLIER = 3
 CATEGORY_CHAPTER_JSON_PATH = os.path.join('app', 'category_chapter_map.json')
 
 WORKERS = 10

@@ -25,6 +25,7 @@ def calculate_current_recall(hl, last_practiced_at, original_recall):
 	return float(round(current_recall, 3))
 
 
+# x in days
 def run_on_last_x_days_attempts(user_id, entity_type, x = model_functions.MAX_HL, attempts_up_to=None):
 	t_minus_x = datetime.now() - timedelta(days=x)
 	t_minus_x_in_ms = int(t_minus_x.timestamp() * 1000)
@@ -37,11 +38,13 @@ def run_on_todays_attempts():
 	user_id = request.form['userid'] 
 	attempts_fetched = False
 	today_start_ms = int(datetime.combine(datetime.today(), time.min).timestamp() * 1000)
+	task_delay = 0
 	if not presenter.past_attempts_fetched(user_id):
 		print ("Getting x days' attempts")
 		run_on_last_x_days_attempts(user_id, 'chapter', attempts_up_to=today_start_ms)
-	print ("Getting today's attempts")
-	celery_tasks.get_attempts_and_run_inference.delay(user_id, today_start_ms, int(datetime.now().timestamp() * 1000), 'chapter', True)
+		task_delay = 60
+	print ("Getting today's attempts, starting in {} seconds".format(task_delay))
+	celery_tasks.get_attempts_and_run_inference.apply_async(args=[user_id, today_start_ms, int(datetime.now().timestamp() * 1000), 'chapter', True], countdown=task_delay)
 	return jsonify(success=True)
 
 
@@ -74,7 +77,7 @@ def get_chapter_data():
 	chapter_id = request.args['chapterid']
 	result = presenter.get_chapter_for_user(user_id, chapter_id)
 	if result:
-		last_practiced_at = get_latest_attempt_time(row.last_practiced_before_today, row.last_practiced_today)
+		last_practiced_at = get_latest_attempt_time(result.last_practiced_before_today, result.last_practiced_today)
 		return jsonify(success=True, recall=calculate_current_recall(result.hl, last_practiced_at, result.recall))
 	else:
 		return jsonify(success=False, error=errors['no_data'])
