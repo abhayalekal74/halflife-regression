@@ -100,7 +100,8 @@ def get_last_practiced(user_id, entity_type):
 	if len(results.current_rows) > 0:
 		data = dict()
 		for row in results:
-			data[int(row.entity_id)] = int(row.last_practiced_before_today)
+			if row.last_practiced_before_today:
+				data[int(row.entity_id)] = int(row.last_practiced_before_today)
 		return data
 	return None
 
