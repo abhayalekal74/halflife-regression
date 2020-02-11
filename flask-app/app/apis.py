@@ -83,3 +83,16 @@ def get_chapter_data():
 		return jsonify(success=False, error=errors['no_data'])
 
 
+@app.route('/chapter/weakest', methods=['GET'])
+def get_weakest_chapters():
+	user_id = request.args['userid']
+	count = int(request.args.get('count', 5))
+	rows = presenter.get_all_chapters_for_user(user_id)
+	if rows:
+		data = list()
+		for row in rows:
+			last_practiced_at = get_latest_attempt_time(row.last_practiced_before_today, row.last_practiced_today)
+			data.append([int(row.entity_id), calculate_current_recall(row.hl, last_practiced_at, row.recall)]) 
+		data.sort(key=lambda x: x[1])
+		return jsonify(weakestChapters=data[:count], success=True)
+	return jsonify(success=False, error=errors['no_data'])
