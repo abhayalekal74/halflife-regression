@@ -96,3 +96,8 @@ def get_weakest_chapters():
 		data.sort(key=lambda x: x[1])
 		return jsonify(weakestChapters=data[:count], success=True)
 	return jsonify(success=False, error=errors['no_data'])
+
+
+@app.route('/status') 
+def return_status():
+	return jsonify(status='OK')
