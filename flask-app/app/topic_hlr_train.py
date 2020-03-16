@@ -27,7 +27,7 @@ REC_MULTIPLIER = 3
 CATEGORY_TO_CHAPTER_JSON_PATH = os.path.join('app', 'category_chapter_map.json')
 CHAPTER_TO_SUBJECT_JSON_PATH = os.path.join('app', 'chapter_subject_map.json')
 
-PRETRAINED_WEIGHTS = dict(chapter=os.path.join('app', 'saved_weights_for_chapters.csv'), subject=os.path.join('app', 'saved_weights_for_subjects.csv')
+PRETRAINED_WEIGHTS = dict(chapter=os.path.join('app', 'saved_weights_for_chapters.csv'), subject=os.path.join('app', 'saved_weights_for_subjects.csv'))
 
 WORKERS = 10
 
@@ -334,7 +334,7 @@ if __name__=='__main__':
 
 	if is_training_phase and not args.save_weights_path:
 		print ("Provide a path to save trained weights. Stopping..")
-		return
+		sys.exit(0)	
 
 	trainset, testset = generate_instances(df, is_training_phase, working_on_subject_level=args.train_on_subjects)
 	print ("trainset {}, testset {}".format(len(trainset), len(testset)))
