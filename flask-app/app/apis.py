@@ -7,9 +7,6 @@ from datetime import datetime, time, timedelta
 import os
 from decimal import Decimal
 
-
-WEIGHTS_PATH = os.path.join('app', 'saved_weights.csv')
-
 errors = {
 	"no_attempts_in_x_days": "No attempts in last {} days".format(model_functions.MAX_HL),
 	"no_attempts_today": "No attempts today",
@@ -34,17 +31,26 @@ def run_on_last_x_days_attempts(user_id, entity_type, x = model_functions.MAX_HL
 	
 
 @app.route('/recall/calculate/chapters', methods=['POST'])
-def run_on_todays_attempts():
+def run_on_todays_attempts_on_chapter_level():
 	user_id = request.form['userid'] 
-	attempts_fetched = False
+	return _run_on_todays_attempts(user_id, 'chapter')
+	
+
+@app.route('/recall/calculate/subjects', methods=['POST'])
+def run_on_todays_attempts_on_subject_level():
+	user_id = request.form['userid'] 
+	return _run_on_todays_attempts(user_id, 'subject')
+
+
+def _run_on_todays_attempts(user_id, entity_type):
 	today_start_ms = int(datetime.combine(datetime.today(), time.min).timestamp() * 1000)
 	task_delay = 0
 	if not presenter.past_attempts_fetched(user_id):
 		print ("Getting x days' attempts")
-		run_on_last_x_days_attempts(user_id, 'chapter', attempts_up_to=today_start_ms)
+		run_on_last_x_days_attempts(user_id, entity_type, attempts_up_to=today_start_ms)
 		task_delay = 60
 	print ("Getting today's attempts, starting in {} seconds".format(task_delay))
-	celery_tasks.get_attempts_and_run_inference.apply_async(args=[user_id, today_start_ms, int(datetime.now().timestamp() * 1000), 'chapter', True], countdown=task_delay)
+	celery_tasks.get_attempts_and_run_inference.apply_async(args=[user_id, today_start_ms, int(datetime.now().timestamp() * 1000), entity_type, True], countdown=task_delay)
 	return jsonify(success=True)
 
 
@@ -60,7 +66,18 @@ def get_latest_attempt_time(t1, t2):
 @app.route('/recall/all_chapters', methods=['GET'])
 def get_all_chapters_data():
 	user_id = request.args['userid']
-	rows = presenter.get_all_chapters_for_user(user_id)
+	rows = presenter.get_all_entities_for_user(user_id, 'chapter')
+	return _process_entities_data(rows)
+
+
+@app.route('/recall/all_subjects', methods=['GET'])
+def get_all_subjects_data():
+	user_id = request.args['userid']
+	rows = presenter.get_all_entities_for_user(user_id, 'subject')
+	return _process_entities_data(rows)
+
+
+def _process_entities_data(rows):
 	if rows:
 		response = dict()
 		for row in rows:
@@ -75,7 +92,19 @@ def get_all_chapters_data():
 def get_chapter_data():
 	user_id = request.args['userid']
 	chapter_id = request.args['chapterid']
-	result = presenter.get_chapter_for_user(user_id, chapter_id)
+	result = presenter.get_entity_for_user(user_id, 'chapter' ,chapter_id)
+	return process_entity_data(result)
+
+
+@app.route('/recall/subject', methods=['GET'])
+def get_subject_data():
+	user_id = request.args['userid']
+	subject_id = request.args['subjectid']
+	result = presenter.get_entity_for_user(user_id, 'subject' ,subject_id)
+	return process_entity_data(result)
+
+
+def process_entity_data(result):
 	if result:
 		last_practiced_at = get_latest_attempt_time(result.last_practiced_before_today, result.last_practiced_today)
 		return jsonify(success=True, recall=calculate_current_recall(result.hl, last_practiced_at, result.recall))
@@ -87,7 +116,19 @@ def get_chapter_data():
 def get_weakest_chapters():
 	user_id = request.args['userid']
 	count = int(request.args.get('count', 5))
-	rows = presenter.get_all_chapters_for_user(user_id)
+	rows = presenter.get_all_entities_for_user(user_id, 'chapter')
+	return select_weakest_entities(rows, count) 
+
+
+@app.route('/subject/weakest', methods=['GET'])
+def get_weakest_subjects():
+	user_id = request.args['userid']
+	count = int(request.args.get('count', 5))
+	rows = presenter.get_all_entities_for_user(user_id, 'subject')
+	return select_weakest_entities(rows, count) 
+
+
+def select_weakest_entities(rows, count):
 	if rows:
 		data = list()
 		for row in rows:

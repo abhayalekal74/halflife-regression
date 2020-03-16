@@ -112,14 +112,14 @@ def write_to_hlr_index(user_id, results, todays_attempts, entity_type):
 	update_row = cassandra_session.prepare("UPDATE {} SET {}=?, hl=?, recall=? WHERE user_id=? and entity_type=? and entity_id=?".format(CASSANDRA_HLR_TABLE, 'last_practiced_today' if todays_attempts else 'last_practiced_before_today'))
 	for row in results:
 		row = row._asdict()
-		batch.add(update_row, (int(row['last_practiced_at']), row['hl'], row['recall'], row['userid'], entity_type, int(row['chapterid'])))
+		batch.add(update_row, (int(row['last_practiced_at']), row['hl'], row['recall'], row['userid'], entity_type, int(row['entityid'])))
 	cassandra_session.execute(batch)
 	if todays_attempts:
 		store_todays_attempts = cassandra_session.prepare("UPDATE {} set last_practiced_at=? WHERE user_id=? and entity_type=? and entity_id=?".format(CASSANDRA_TODAYS_ATTEMPTS))	
 		todays_attempts_batch = BatchStatement()
 		for row in results:
 			row = row._asdict()
-			todays_attempts_batch.add(store_todays_attempts, (int(row['last_practiced_at']), row['userid'], entity_type, int(row['chapterid'])))
+			todays_attempts_batch.add(store_todays_attempts, (int(row['last_practiced_at']), row['userid'], entity_type, int(row['entityid'])))
 		cassandra_session.execute(todays_attempts_batch)
 	else:
 		# Set past_attempts_fetched to 1 
@@ -139,14 +139,14 @@ def update_last_practiced_before_today():
 	cassandra_session.execute('TRUNCATE {}'.format(CASSANDRA_TODAYS_ATTEMPTS))
 
 
-def get_all_chapters_for_user(user_id):
+def get_all_entities_for_user(user_id, entity_type):
 	cassandra_cluster, cassandra_session = get_hlr_cassandra_session()
-	return cassandra_session.execute("SELECT * FROM {} WHERE user_id='{}'".format(CASSANDRA_HLR_TABLE, user_id))
+	return cassandra_session.execute("SELECT * FROM {} WHERE user_id='{}' and entity_type='{}'".format(CASSANDRA_HLR_TABLE, user_id, entity_type))
 
 
-def get_chapter_for_user(user_id, chapter_id):
+def get_entity_for_user(user_id, entity_type, entity_id):
 	cassandra_cluster, cassandra_session = get_hlr_cassandra_session()
-	rows = cassandra_session.execute("SELECT * FROM {} WHERE user_id='{}' and entity_type='{}' and entity_id={}".format(CASSANDRA_HLR_TABLE, user_id, 'chapter', chapter_id))
+	rows = cassandra_session.execute("SELECT * FROM {} WHERE user_id='{}' and entity_type='{}' and entity_id={}".format(CASSANDRA_HLR_TABLE, user_id, entity_type, entity_id))
 	return rows[0] if rows else None
 
 

@@ -24,12 +24,15 @@ MIN_WEIGHT = 0.0001
 HYPER_PARAM_OPT_ROUNDS = 50
 LN2 = math.log(2.)
 REC_MULTIPLIER = 3
-CATEGORY_CHAPTER_JSON_PATH = os.path.join('app', 'category_chapter_map.json')
+CATEGORY_TO_CHAPTER_JSON_PATH = os.path.join('app', 'category_chapter_map.json')
+CHAPTER_TO_SUBJECT_JSON_PATH = os.path.join('app', 'chapter_subject_map.json')
+
+PRETRAINED_WEIGHTS = dict(chapter=os.path.join('app', 'saved_weights_for_chapters.csv'), subject=os.path.join('app', 'saved_weights_for_subjects.csv')
 
 WORKERS = 10
 
-Instance = namedtuple('Instance', ['userid', 'recall', 'hl', 'time_delta', 'chapterid', 'last_practiced_at', 'feature_vector'])
-Result = namedtuple('Result', ['userid', 'chapterid', 'last_practiced_at', 'recall', 'hl'])
+Instance = namedtuple('Instance', ['userid', 'recall', 'hl', 'time_delta', 'entityid', 'last_practiced_at', 'feature_vector'])
+Result = namedtuple('Result', ['userid', 'entityid', 'last_practiced_at', 'recall', 'hl'])
 
 hyper_param_space = {
 						'lrate': hp.loguniform('lrate', np.log(.0001), np.log(.2)), 
@@ -89,17 +92,17 @@ def get_hl_in_practice(recall, calculated_hl):
 	return max(MIN_HL, math.exp(recall * REC_MULTIPLIER) * calculated_hl)
 
 
-def generate_instances(df, is_training_phase, last_practiced_map=None):
+def generate_instances(df, is_training_phase, working_on_subject_level = False, last_practiced_map = None):
 	print ("Reading data...")
 	instances = list()
-	for groupid, groupdf in df.groupby(['userid', 'examid', 'chapterid']):
+	for groupid, groupdf in df.groupby(['userid', 'examid', 'subjectid' if working_on_subject_level else 'chapterid']):
 		userid = groupid[0]
 		examid = groupid[1]
-		chapterid = groupid[2]
+		entityid = groupid[2]
 		correct_attempts_all = 0
 		total_attempts_all = 0
-		prev_session_end = None if not last_practiced_map else last_practiced_map.get(int(chapterid), None)
-		print ("prev_session_end for {}: {}".format(chapterid, prev_session_end))
+		prev_session_end = None if not last_practiced_map else last_practiced_map.get(int(entityid), None)
+		print ("prev_session_end for {}: {}".format(entityid, prev_session_end))
 		for sessionid, session_group in groupdf.groupby(['date']):
 			session_name = "{}".format(sessionid)
 			total_attempts = len(session_group)
@@ -123,8 +126,8 @@ def generate_instances(df, is_training_phase, last_practiced_map=None):
 			feature_vector.append((sys.intern('wrong_session'), math.sqrt(1 + total_attempts - correct_attempts)))
 			#feature_vector.append((sys.intern(userid), 1.))
 			feature_vector.append((sys.intern(examid), 1.))
-			feature_vector.append((sys.intern(str(chapterid)), 1.))
-			inst = Instance(userid, actual_recall, actual_halflife, time_delta, chapterid, prev_session_end, feature_vector)
+			feature_vector.append((sys.intern(str(entityid)), 1.))
+			inst = Instance(userid, actual_recall, actual_halflife, time_delta, entityid, prev_session_end, feature_vector)
 			instances.append(inst)
 
 	splitpoint = int(0.9 * len(instances)) if is_training_phase else 0
@@ -269,11 +272,12 @@ class HLRModel(object):
 
 def parse_args():
 	parser = argparse.ArgumentParser()
-	parser.add_argument('--weights', dest='weights', help="JSON file containing trained weights")
-	parser.add_argument('--save-weights', dest='save_weights', default="saved_weights.csv", help='File to save the weights in')
+	parser.add_argument('--pretrained-weights', dest='pretrained_weights', help="JSON file containing trained weights")
+	parser.add_argument('--save-weights-path', dest='save_weights_path', default="", help='File to save the weights in')
 	parser.add_argument('--epochs', dest='epochs', type=int, default=1, help='Epochs to train')
 	parser.add_argument('--param-opt-rounds', dest='param_opt_rounds', type=int, default=0, help='Hyperparameter optimization rounds')
 	parser.add_argument('--train-further', dest='train_further', default=False, action="store_true", help='If the weights should be trained further')
+	parser.add_argument('--train-on-subjects', dest='train_on_subjects', default=False, action="store_true", help='Train at subject level, instead of chapters')
 	parser.add_argument('--optimize-params', dest='optimize_params', default=False, action="store_true", help='Optimize hyperparameters')
 	parser.add_argument('--convert-to-chapters', dest='convert_to_chapters', default=False, action="store_true", help='Convert categoryid to chapters. Use when csv contains categoryid instead of chapterid')
 	parser.add_argument('attempts_file', help='CSV file containing attempts data')
@@ -283,54 +287,63 @@ def parse_args():
 	return args
 
 
-def get_final_df(df, convert_to_chapters, category_chapter_json_path = CATEGORY_CHAPTER_JSON_PATH):
+def get_final_df(df, convert_to_chapters, working_on_subject_level=False):
 	df['date'] = df.apply(lambda row: dt.fromtimestamp(row['attempttime']/1000).date(), axis=1) 
 	if convert_to_chapters:
-		category_chapter_map = defaultdict(lambda: float('nan'))
-		category_chapter_map.update(json.load(open(category_chapter_json_path)))
-		df['chapterid'] = df.apply(lambda row: category_chapter_map[str(int(row['categoryid']))], axis=1)
+		category_to_chapter_map = defaultdict(lambda: float('nan'))
+		category_to_chapter_map.update(json.load(open(CATEGORY_TO_CHAPTER_JSON_PATH)))
+		df['chapterid'] = df.apply(lambda row: category_to_chapter_map[str(int(row['categoryid']))], axis=1)
+	if working_on_subject_level:
+		chapter_to_subject_map = defaultdict(lambda: float('nan'))
+		chapter_to_subject_map.update(json.load(open(CHAPTER_TO_SUBJECT_JSON_PATH)))
+		df['subjectid'] = df.apply(lambda row: chapter_to_subject_map[str(int(row['chapterid']))], axis=1)
 	df.drop(columns=['categoryid'])
 	df.dropna()
 	df = df.sort_values(by=['attempttime'], ascending=True)
 	return df	
 
 
-def get_model(saved_weights_path):
-	saved_weights = json.load(open(saved_weights_path, 'r')) if saved_weights_path else None
-	return HLRModel(initial_weights=saved_weights), saved_weights
+def get_model(pretrained_weights_path):
+	pretrained_weights = json.load(open(pretrained_weights_path, 'r')) if pretrained_weights_path else None
+	return HLRModel(initial_weights=pretrained_weights), pretrained_weights
 
 
 # Only method that is to be called from other classes for prediction on raw_df
-def run_inference(raw_df, saved_weights_path, last_practiced_map, convert_to_chapters=True):
-	df = get_final_df(raw_df, convert_to_chapters)
-	model, saved_weights = get_model(saved_weights_path)
-	_, instances = generate_instances(df, False, last_practiced_map=last_practiced_map)
+def run_inference(raw_df, entity_type, last_practiced_map, convert_to_chapters=True):
+	working_on_subject_level = entity_type == 'subject'
+	df = get_final_df(raw_df, convert_to_chapters, working_on_subject_level=working_on_subject_level)
+	model, pretrained_weights = get_model(PRETRAINED_WEIGHTS[entity_type])
+	_, instances = generate_instances(df, False, working_on_subject_level=working_on_subject_level, last_practiced_map=last_practiced_map)
 	results = list()
 	for inst in instances:
 		_, hl = model.predict(inst)
 		hl_in_practice = get_hl_in_practice(inst.recall, hl) 
-		results.append(Result(inst.userid, inst.chapterid, inst.last_practiced_at, inst.recall, hl_in_practice))
+		results.append(Result(inst.userid, inst.entityid, inst.last_practiced_at, inst.recall, hl_in_practice))
 	return results
 
 
 if __name__=='__main__':
 	args = parse_args()
-	df = get_final_df(pd.read_csv(args.attempts_file), args.convert_to_chapters)
+	df = get_final_df(pd.read_csv(args.attempts_file), args.convert_to_chapters, working_on_subject_level=args.train_on_subjects)
 
 	queue = Queue()
 
-	model, saved_weights = get_model(args.weights)
+	model, pretrained_weights = get_model(args.weights)
 
-	is_training_phase = not saved_weights or (saved_weights is not None and args.train_further)
+	is_training_phase = not pretrained_weights or (pretrained_weights is not None and args.train_further)
 
-	trainset, testset = generate_instances(df, is_training_phase)
+	if is_training_phase and not args.save_weights_path:
+		print ("Provide a path to save trained weights. Stopping..")
+		return
+
+	trainset, testset = generate_instances(df, is_training_phase, working_on_subject_level=args.train_on_subjects)
 	print ("trainset {}, testset {}".format(len(trainset), len(testset)))
 
 	if is_training_phase:	
 		if args.optimize_params or args.param_opt_rounds > 0:
-			model.train_with_param_optimization(trainset, args.epochs, args.save_weights, HYPER_PARAM_OPT_ROUNDS if args.param_opt_rounds == 0 else args.param_opt_rounds)
+			model.train_with_param_optimization(trainset, args.epochs, args.save_weights_path, HYPER_PARAM_OPT_ROUNDS if args.param_opt_rounds == 0 else args.param_opt_rounds)
 		else:
-			model.train(None, trainset, args.epochs, args.save_weights)
+			model.train(None, trainset, args.epochs, args.save_weights_path)
 
 	queue.join()
 	model.eval(testset)
