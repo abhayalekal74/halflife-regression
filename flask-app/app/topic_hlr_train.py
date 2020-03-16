@@ -27,7 +27,7 @@ REC_MULTIPLIER = 3
 CATEGORY_TO_CHAPTER_JSON_PATH = os.path.join('app', 'category_chapter_map.json')
 CHAPTER_TO_SUBJECT_JSON_PATH = os.path.join('app', 'chapter_subject_map.json')
 
-PRETRAINED_WEIGHTS = dict(chapter=os.path.join('app', 'saved_weights_for_chapters.csv'), subject=os.path.join('app', 'saved_weights_for_subjects.csv'))
+PRETRAINED_WEIGHTS = dict(chapter=os.path.join('app', 'chapter_weights.csv'), subject=os.path.join('app', 'subject_weights.csv'))
 
 WORKERS = 10
 
