@@ -24,8 +24,8 @@ MIN_WEIGHT = 0.0001
 HYPER_PARAM_OPT_ROUNDS = 50
 LN2 = math.log(2.)
 REC_MULTIPLIER = 3
-CATEGORY_TO_CHAPTER_JSON_PATH = os.path.join('app', 'category_chapter_map.json')
-CHAPTER_TO_SUBJECT_JSON_PATH = os.path.join('app', 'chapter_subject_map.json')
+#CATEGORY_TO_CHAPTER_JSON_PATH = os.path.join('category_chapter_map.json')
+#CHAPTER_TO_SUBJECT_JSON_PATH = os.path.join('chapter_subject_map.json')
 
 PRETRAINED_WEIGHTS = dict(chapter=os.path.join('app', 'chapter_weights.csv'), subject=os.path.join('app', 'subject_weights.csv'))
 
@@ -291,13 +291,13 @@ def get_final_df(df, convert_to_chapters, working_on_subject_level=False):
 	df['date'] = df.apply(lambda row: dt.fromtimestamp(row['attempttime']/1000).date(), axis=1) 
 	if convert_to_chapters:
 		category_to_chapter_map = defaultdict(lambda: float('nan'))
-		category_to_chapter_map.update(json.load(open(CATEGORY_TO_CHAPTER_JSON_PATH)))
+		category_to_chapter_map.update(json.load(open(os.path.join('app', 'category_chapter_map.json'))))
 		df['chapterid'] = df.apply(lambda row: category_to_chapter_map[str(int(row['categoryid']))], axis=1)
+		df.drop(columns=['categoryid'])
 	if working_on_subject_level:
 		chapter_to_subject_map = defaultdict(lambda: float('nan'))
-		chapter_to_subject_map.update(json.load(open(CHAPTER_TO_SUBJECT_JSON_PATH)))
+		chapter_to_subject_map.update(json.load(open(os.path.join('app', 'chapter_subject_map.json'))))
 		df['subjectid'] = df.apply(lambda row: chapter_to_subject_map[str(int(row['chapterid']))], axis=1)
-	df.drop(columns=['categoryid'])
 	df.dropna()
 	df = df.sort_values(by=['attempttime'], ascending=True)
 	return df	
@@ -328,7 +328,7 @@ if __name__=='__main__':
 
 	queue = Queue()
 
-	model, pretrained_weights = get_model(args.weights)
+	model, pretrained_weights = get_model(args.pretrained_weights)
 
 	is_training_phase = not pretrained_weights or (pretrained_weights is not None and args.train_further)
 

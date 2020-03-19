@@ -23,34 +23,24 @@ def calculate_current_recall(hl, last_practiced_at, original_recall):
 
 
 # x in days
-def run_on_last_x_days_attempts(user_id, entity_type, x = model_functions.MAX_HL, attempts_up_to=None):
+def run_on_last_x_days_attempts(user_id, x = model_functions.MAX_HL, attempts_up_to=None):
 	t_minus_x = datetime.now() - timedelta(days=x)
 	t_minus_x_in_ms = int(t_minus_x.timestamp() * 1000)
-	task = celery_tasks.get_attempts_and_run_inference.apply_async(args=[user_id, t_minus_x_in_ms, attempts_up_to, entity_type, False])
+	task = celery_tasks.get_attempts_and_run_inference.apply_async(args=[user_id, t_minus_x_in_ms, attempts_up_to, False])
 	print ("Task ID", task)
 	
 
-@app.route('/recall/calculate/chapters', methods=['POST'])
-def run_on_todays_attempts_on_chapter_level():
+@app.route('/recall/calculate', methods=['POST'])
+def run_on_todays_attempts():
 	user_id = request.form['userid'] 
-	return _run_on_todays_attempts(user_id, 'chapter')
-	
-
-@app.route('/recall/calculate/subjects', methods=['POST'])
-def run_on_todays_attempts_on_subject_level():
-	user_id = request.form['userid'] 
-	return _run_on_todays_attempts(user_id, 'subject')
-
-
-def _run_on_todays_attempts(user_id, entity_type):
 	today_start_ms = int(datetime.combine(datetime.today(), time.min).timestamp() * 1000)
 	task_delay = 0
 	if not presenter.past_attempts_fetched(user_id):
 		print ("Getting x days' attempts")
-		run_on_last_x_days_attempts(user_id, entity_type, attempts_up_to=today_start_ms)
+		run_on_last_x_days_attempts(user_id, attempts_up_to=today_start_ms)
 		task_delay = 60
 	print ("Getting today's attempts, starting in {} seconds".format(task_delay))
-	celery_tasks.get_attempts_and_run_inference.apply_async(args=[user_id, today_start_ms, int(datetime.now().timestamp() * 1000), entity_type, True], countdown=task_delay)
+	celery_tasks.get_attempts_and_run_inference.apply_async(args=[user_id, today_start_ms, int(datetime.now().timestamp() * 1000), True], countdown=task_delay)
 	return jsonify(success=True)
 
 
