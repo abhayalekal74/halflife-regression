@@ -57,25 +57,33 @@ def get_latest_attempt_time(t1, t2):
 def get_all_chapters_data():
 	user_id = request.args['userid']
 	rows = presenter.get_all_entities_for_user(user_id, 'chapter')
-	return _process_entities_data(rows)
+	data = _process_entities_data(rows)
+	return jsonify(success=True, data=data)	
 
 
 @app.route('/recall/all_subjects', methods=['GET'])
 def get_all_subjects_data():
 	user_id = request.args['userid']
 	rows = presenter.get_all_entities_for_user(user_id, 'subject')
-	return _process_entities_data(rows)
+	data = _process_entities_data(rows)
+	return jsonify(success=True, data=data)	
 
+
+@app.route('/recall/all', methods=['GET'])
+def get_all_entities_recall():
+	user_id = request.args['userid']
+	chapters = presenter.get_all_entities_for_user(user_id, 'chapter')
+	subjects = presenter.get_all_entities_for_user(user_id, 'subject')
+	return jsonify(success=True, chapters=_process_entities_data(chapters), subjects=_process_entities_data(subjects))
+	
 
 def _process_entities_data(rows):
+	response = dict()
 	if rows:
-		response = dict()
 		for row in rows:
 			last_practiced_at = get_latest_attempt_time(row.last_practiced_before_today, row.last_practiced_today)
 			response[int(row.entity_id)] = calculate_current_recall(row.hl, last_practiced_at, row.recall) 
-		return jsonify(success=True, data=response)
-	else:
-		return jsonify(success=False, error=errors['no_data'])
+	return response 
 
 
 @app.route('/recall/chapter', methods=['GET'])
@@ -102,12 +110,28 @@ def process_entity_data(result):
 		return jsonify(success=False, error=errors['no_data'])
 
 
+@app.route('/chapter/strongest', methods=['GET'])
+def get_strongest_chapters():
+	user_id = request.args['userid']
+	count = int(request.args.get('count', 5))
+	rows = presenter.get_all_entities_for_user(user_id, 'chapter')
+	return select_entities_in_order(rows, count, reverse=True) 
+
+
+@app.route('/subject/strongest', methods=['GET'])
+def get_strongest_subjects():
+	user_id = request.args['userid']
+	count = int(request.args.get('count', 5))
+	rows = presenter.get_all_entities_for_user(user_id, 'subject')
+	return select_entities_in_order(rows, count, reverse=True) 
+
+
 @app.route('/chapter/weakest', methods=['GET'])
 def get_weakest_chapters():
 	user_id = request.args['userid']
 	count = int(request.args.get('count', 5))
 	rows = presenter.get_all_entities_for_user(user_id, 'chapter')
-	return select_weakest_entities(rows, count) 
+	return select_entities_in_order(rows, count) 
 
 
 @app.route('/subject/weakest', methods=['GET'])
@@ -115,17 +139,17 @@ def get_weakest_subjects():
 	user_id = request.args['userid']
 	count = int(request.args.get('count', 5))
 	rows = presenter.get_all_entities_for_user(user_id, 'subject')
-	return select_weakest_entities(rows, count) 
+	return select_entities_in_order(rows, count) 
 
 
-def select_weakest_entities(rows, count):
+def select_entities_in_order(rows, count, reverse=False):
 	if rows:
 		data = list()
 		for row in rows:
 			last_practiced_at = get_latest_attempt_time(row.last_practiced_before_today, row.last_practiced_today)
 			data.append([int(row.entity_id), calculate_current_recall(row.hl, last_practiced_at, row.recall)]) 
-		data.sort(key=lambda x: x[1])
-		return jsonify(weakestChapters=data[:count], success=True)
+		data.sort(key=lambda x: x[1], reverse=reverse)
+		return jsonify(data=data[:count], success=True)
 	return jsonify(success=False, error=errors['no_data'])
 
 
