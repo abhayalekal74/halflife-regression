@@ -30,7 +30,7 @@ cassandra_session = None
 def get_attempts_es_index():
 	global attempts_es_index
 	if not attempts_es_index:
-		attempts_es_client = Elasticsearch(os.getenv('ATTEMPTS_ES_URL', "http://172.30.0.189"))
+		attempts_es_client = Elasticsearch(os.getenv('ATTEMPTS_ES_URL', "http://172.30.0.148"))
 		attempts_es_index = Search(index='attempt1').using(attempts_es_client)
 	return attempts_es_index
 
