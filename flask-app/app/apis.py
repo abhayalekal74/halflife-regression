@@ -62,9 +62,7 @@ def get_all_entities_recall():
 	subjects = presenter.get_all_entities_for_user(user_id, 'subject')
 	return jsonify(success=True, \
 					chapters=_process_entities_data(chapters), \
-					subjects=_process_entities_data(subjects), \
-					weakestChapters=select_entities_in_order(chapters, count), \
-					strongestChapters=select_entities_in_order(chapters, count, reverse=True))
+					subjects=_process_entities_data(subjects))
 	
 
 def _process_entities_data(rows):

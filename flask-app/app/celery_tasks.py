@@ -62,8 +62,10 @@ If the user has not attempted any questions in x minutes, run the model
 @celery.task
 def check_latest_activity(user_id):
 	redis = get_redis_client()
-	latest_attempt = float(redis.get('latest-attempt-' + user_id))
+	key = 'latest-attempt-' + user_id
+	latest_attempt = float(redis.get(key))
 	if (datetime.now().timestamp() - latest_attempt) >= CHECK_INACTIVITY_AFTER:
+		redis.delete(key)
 		infer_on_todays_attempts(user_id)
 
 
