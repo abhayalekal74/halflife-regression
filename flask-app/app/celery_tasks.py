@@ -9,7 +9,7 @@ import os
 import redis
 
 
-CHECK_INACTIVITY_AFTER = 300
+CHECK_INACTIVITY_AFTER = 60 # If no new request in these many seconds, run model
 redisClient = None
 
 
