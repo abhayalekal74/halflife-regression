@@ -32,7 +32,7 @@ chapter_to_subject_map.update(json.load(open(os.path.join('data', 'chapter_subje
 
 PRETRAINED_WEIGHTS = dict(chapter=os.path.join('data', 'chapter_weights.json'), subject=os.path.join('data', 'subject_weights.json'))
 
-WORKERS = 10
+WORKERS = 6 
 
 Instance = namedtuple('Instance', ['userid', 'recall', 'hl', 'time_delta', 'entityid', 'last_practiced_at', 'feature_vector'])
 Result = namedtuple('Result', ['userid', 'entityid', 'last_practiced_at', 'recall', 'hl'])
@@ -101,7 +101,6 @@ def get_instances(df, is_training_phase, working_at_subject_level = False, last_
 	print ("Reading data... {}".format(len(df)))
 	instances = list()
 	for groupid, groupdf in df.groupby(['userid', 'examid', 'subjectid' if working_at_subject_level else 'chapterid']):
-		print ("Current batch: ", groupid)
 		userid = groupid[0]
 		examid = groupid[1]
 		entityid = groupid[2]
@@ -146,7 +145,7 @@ class HLRModel(object):
 	# Default lrate=.001, hlwt=.01, l2wt=.1, sigma=1.
 	# Optimized lrate=0.022427189896994885, hlwt=0.0076612918283761695, l2wt=0.18511718781821973, sigma=0.8733141261582174
 	def __init__(self, initial_weights=None, lrate=.001, hlwt=.01, l2wt=.1, sigma=1.): 
-		self.weights = defaultdict(float)
+		self.weights = defaultdict(lambda: 1.0)
 		if initial_weights is not None:
 			self.weights.update(initial_weights)
 		self.fcounts = defaultdict(int)
@@ -161,14 +160,17 @@ class HLRModel(object):
 		self.parallel_fcounts = defaultdict(lambda: defaultdict(int))
 
 
-	def halflife(self, inst, base):
+	def halflife(self, inst, base, worker=None):
 		# h = 2 ** (theta . x)
-		theta_x_dot_product = sum([self.weights[feature] * value for (feature, value) in inst.feature_vector])
+		if worker is None:
+			theta_x_dot_product = sum([self.weights[feature] * value for (feature, value) in inst.feature_vector])
+		else:
+			theta_x_dot_product = sum([self.parallel_weights[worker][feature] * value for (feature, value) in inst.feature_vector])
 		return halflife_clip(base ** theta_x_dot_product) 
 
 
-	def predict(self, inst, base=2.):
-		halflife = self.halflife(inst, base)
+	def predict(self, inst, base=2., worker=None):
+		halflife = self.halflife(inst, base, worker)
 		recall = get_recall(halflife, inst.time_delta)
 		return recall_clip(recall), halflife
 
@@ -196,6 +198,30 @@ class HLRModel(object):
 			# increment feature count for learning rate
 			self.fcounts[feature] += 1
 
+	
+	def train_sequential(self, params, trainset, epochs, save_weights):
+		if params:
+			self.lrate = params['lrate']
+			self.hlwt = params['hlwt']
+			self.l2wt = params['l2wt']
+			self.sigma = params['sigma']
+
+		train_loss = float('inf')
+
+		for i in range(epochs):
+			for inst in trainset:
+				self.train_update_sequential(inst)
+			with open(save_weights, 'w') as f:
+				print("\n\nEpoch {}: train_loss {}\n".format(i, self.min_loss))
+				f.write(json.dumps(self.weights))
+			print ("Weight after epoch {}: {}".format(i, self.weights))
+		return {'loss': train_loss, 'status': STATUS_OK, 'params': params}
+
+
+	def get_batches(self, dataset, size=1024):
+		for i in range(0, len(dataset), size):
+			yield dataset[i : i + size]		
+
 
 	# parallel batch training
 	def train_update_parallel(self, worker, queue, trainset):
@@ -203,7 +229,7 @@ class HLRModel(object):
 			batch = queue.get()
 			for inst in batch:
 				base = 2.
-				recall, hl = self.predict(inst, base)
+				recall, hl = self.predict(inst, base, worker=worker)
 				dl_recall_dw = 2. * (recall - inst.recall) * (LN2 ** 2) * recall * (inst.time_delta / hl)
 				dl_hl_dw = 2. * (hl - inst.hl) * LN2 * hl
 				for (feature, value) in inst.feature_vector:
@@ -217,31 +243,6 @@ class HLRModel(object):
 					self.parallel_fcounts[worker][feature] += 1
 			queue.task_done()
 		return self.min_loss 
-
-
-	def get_batches(self, dataset, size=1024):
-		for i in range(0, len(dataset), size):
-			yield dataset[i : i + size]		
-
-	
-	def train_sequential(self, params, trainset, epochs, save_weights):
-		if params:
-			self.lrate = params['lrate']
-			self.hlwt = params['hlwt']
-			self.l2wt = params['l2wt']
-			self.sigma = params['sigma']
-
-		train_loss = float('inf')
-
-		for i in range(epochs):
-			for inst in trainset:
-				print ("training on ", inst)
-				self.train_update_sequential(inst)
-			with open(save_weights, 'w') as f:
-				print("\n\nEpoch {}: train_loss {}\n".format(i, self.min_loss))
-				f.write(json.dumps(self.weights))
-			print ("Weight after epoch {}: {}".format(i, self.weights))
-		return {'loss': train_loss, 'status': STATUS_OK, 'params': params}
 
 
 	def train_parallel(self, params, trainset, epochs, save_weights):
@@ -266,9 +267,11 @@ class HLRModel(object):
 				
 				# combining parallel weights
 				for w in range(WORKERS):
-					print ("Worker weights:", w, self.parallel_weights[w]) 
 					for entityid, weight in self.parallel_weights[w].items():
 						self.weights[entityid] += weight 
+				for entityid, weight in self.weights.items():
+					self.weights[entityid] = weight / WORKERS
+				self.weights[0] = 1.0 # Hard coding weights for subjects and topics not present in training data (they will have 0 as id because we're using defaultdict(int) for category-chapter map and chapter-subject map
 				f.write(json.dumps(self.weights))
 			print ("Weight after epoch {}: {}".format(i, self.weights))
 		return {'loss': train_loss, 'status': STATUS_OK, 'params': params}
@@ -276,7 +279,7 @@ class HLRModel(object):
 
 	def train_with_param_optimization(self, trainset, epochs, save_weights, param_opt_rounds):
 		bayes_trials = Trials()
-		objective_fn = partial(self.train, trainset=trainset, epochs=epochs, save_weights=save_weights)
+		objective_fn = partial(self.train_parallel, trainset=trainset, epochs=epochs, save_weights=save_weights)
 		best_params = fmin(fn = objective_fn, space = hyper_param_space, algo = tpe.suggest, max_evals = param_opt_rounds, trials = bayes_trials)		
 		bayes_trials_results = sorted(bayes_trials.results, key = lambda x: x['loss'])
 		print ("\nTop trials:\n{}".format(bayes_trials_results[:2]))
@@ -328,21 +331,21 @@ def parse_args():
 	parser.add_argument('--save-weights-path', dest='save_weights_path', default="", help='File to save the weights in')
 	parser.add_argument('--epochs', dest='epochs', type=int, default=1, help='Epochs to train')
 	parser.add_argument('--param-opt-rounds', dest='param_opt_rounds', type=int, default=0, help='Hyperparameter optimization rounds')
-	parser.add_argument('--train-further', dest='train_further', default=False, action="store_true", help='If the weights should be trained further')
-	parser.add_argument('--train-on-subjects', dest='train_on_subjects', default=False, action="store_true", help='Train at subject level, instead of chapters')
+	parser.add_argument('--train', dest='train', default=True, action="store_true", help='Train the model')
+	parser.add_argument('--pred', dest='pred', default=False, action="store_true", help='Predict halflife')
+	parser.add_argument('--subject-as-entity', dest='subject_as_entity', default=False, action="store_true", help='Train/predict at subject level, instead of chapters')
 	parser.add_argument('--optimize-params', dest='optimize_params', default=False, action="store_true", help='Optimize hyperparameters')
 	parser.add_argument('--convert-to-chapters', dest='convert_to_chapters', default=False, action="store_true", help='Convert categoryid to chapters. Use when csv contains categoryid instead of chapterid')
-	parser.add_argument('attempts_file', help='CSV file containing attempts data')
+	parser.add_argument('attempts_folder', help='Folder containing attempts data in CSV format')
 	args = parser.parse_args()
-	if not args.attempts_file:
-		sys.exit('Please pass the attempts file')
+	if not args.attempts_folder:
+		sys.exit('Please pass the attempts data folder')
 	return args
 
 
 def get_final_df(df, convert_to_chapters, working_at_subject_level=False):
 	df['date'] = df.apply(lambda row: dt.fromtimestamp(row['attempttime']/1000).date(), axis=1) 
 	if convert_to_chapters:
-		print (df['categoryid'][0])
 		df['chapterid'] = df.apply(lambda row: category_to_chapter_map[str(int(row['categoryid']))], axis=1)
 		df.drop(columns=['categoryid'])
 	if working_at_subject_level:
@@ -352,10 +355,10 @@ def get_final_df(df, convert_to_chapters, working_at_subject_level=False):
 	return df	
 
 
-def get_model(pretrained_weights_path, mode='train'):
-	pretrained_weights = json.load(open(pretrained_weights_path, 'r')) if pretrained_weights_path else None
-	if mode == 'train':
-		return HLRModel(initial_weights=pretrained_weights), pretrained_weights
+def get_model(pretrained_weights_path, mode='one_time_use'):
+	pretrained_weights = json.load(open(pretrained_weights_path, 'r')) if pretrained_weights_path else dict() 
+	if mode == 'one_time_use':
+		return HLRModel(initial_weights=pretrained_weights)
 	else:
 		if inference_model is None:
 			inference_model = HLRModel(initial_weights=pretrained_weights)
@@ -366,7 +369,7 @@ def get_model(pretrained_weights_path, mode='train'):
 def run_inference(raw_df, entity_type, last_practiced_map, convert_to_chapters=True):
 	working_at_subject_level = entity_type == 'subject'
 	df = get_final_df(raw_df, convert_to_chapters, working_at_subject_level=working_at_subject_level)
-	model = get_model(PRETRAINED_WEIGHTS[entity_type], mode='inference')
+	model = get_model(PRETRAINED_WEIGHTS[entity_type], mode='multi_use')
 	_, instances = get_instances(df, False, working_at_subject_level=working_at_subject_level, last_practiced_map=last_practiced_map)
 	results = list()
 	for inst in instances:
@@ -378,26 +381,31 @@ def run_inference(raw_df, entity_type, last_practiced_map, convert_to_chapters=T
 
 if __name__=='__main__':
 	args = parse_args()
-	df = get_final_df(pd.read_csv(args.attempts_file), args.convert_to_chapters, working_at_subject_level=args.train_on_subjects)
-
-	queue = Queue()
-
-	model, pretrained_weights = get_model(args.pretrained_weights)
-
-	is_training_phase = not pretrained_weights or (pretrained_weights is not None and args.train_further)
+	is_training_phase = args.train and not args.pred 
 
 	if is_training_phase and not args.save_weights_path:
 		print ("Provide a path to save trained weights. Stopping..")
 		sys.exit(0)	
 
-	trainset, testset = get_instances(df, is_training_phase, working_at_subject_level=args.train_on_subjects)
-	print ("trainset {}, testset {}".format(len(trainset), len(testset)))
+	use_pretrained_weights = True
+	for attempts_file in os.listdir(args.attempts_folder):
 
-	if is_training_phase:	
-		if args.optimize_params or args.param_opt_rounds > 0:
-			model.train_with_param_optimization(trainset, args.epochs, args.save_weights_path, HYPER_PARAM_OPT_ROUNDS if args.param_opt_rounds == 0 else args.param_opt_rounds)
+		print ("Current file:", attempts_file)
+		df = get_final_df(pd.read_csv(os.path.join(args.attempts_folder, attempts_file)), args.convert_to_chapters, working_at_subject_level=args.subject_as_entity)
+
+		queue = Queue()
+		
+		model = get_model(args.pretrained_weights if use_pretrained_weights else args.save_weights_path)
+		use_pretrained_weights = args.pred # If running prediction, keep on using pretrained weights, otherwise use the updated weights
+
+		trainset, testset = get_instances(df, is_training_phase, working_at_subject_level=args.subject_as_entity)
+		print ("trainset {}, testset {}".format(len(trainset), len(testset)))
+
+		if is_training_phase:	
+			if args.optimize_params or args.param_opt_rounds > 0:
+				model.train_with_param_optimization(trainset, args.epochs, args.save_weights_path, HYPER_PARAM_OPT_ROUNDS if args.param_opt_rounds == 0 else args.param_opt_rounds)
+			else:
+				model.train_parallel(None, trainset, args.epochs, args.save_weights_path)
 		else:
-			model.train_parallel(None, trainset, args.epochs, args.save_weights_path)
-
-	queue.join()
-	model.eval(testset)
+			model.eval(testset)
+		queue.join()
