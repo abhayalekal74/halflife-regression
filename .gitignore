@@ -7,3 +7,4 @@ results/
 data/
 flask-app/app/__pycache__/
 *__pycache__/
+weights-updates/

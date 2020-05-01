@@ -16,7 +16,8 @@ redisClient = None
 def get_redis_client():
 	global redisClient
 	if not redisClient:
-		redisClient = redis.Redis(os.getenv('REDIS_RATE_LIMITER', "redis-cache-node.sxlph4.0001.use1.cache.amazonaws.com"))
+		#redisClient = redis.Redis(os.getenv('RATE_LIMITER_REDIS', "localhost"))
+		redisClient = redis.Redis(os.getenv('RATE_LIMITER_REDIS', "redis-cache-node.sxlph4.0001.use1.cache.amazonaws.com"))
 	return redisClient
 
 
@@ -63,15 +64,17 @@ If the user has not attempted any questions in x minutes, run the model
 def check_latest_activity(user_id):
 	redis = get_redis_client()
 	key = 'latest-attempt-' + user_id
-	latest_attempt = float(redis.get(key))
-	if (datetime.now().timestamp() - latest_attempt) >= CHECK_INACTIVITY_AFTER:
-		redis.delete(key)
+	latest_attempt = redis.get(key)
+	print ("latest_attempt of {} is {}".format(user_id, latest_attempt))
+	if not latest_attempt or (datetime.now().timestamp() - float(latest_attempt)) >= CHECK_INACTIVITY_AFTER:
 		infer_on_todays_attempts(user_id)
+		redis.delete(key)
 
 
 @celery.task
 def add_to_queue(user_id):
 	redis = get_redis_client()
 	current_time = datetime.now().timestamp()
+	print ("Adding {} to queue {}".format(user_id, current_time))
 	newly_scheduled_task = check_latest_activity.apply_async(args=[user_id], countdown=CHECK_INACTIVITY_AFTER)
 	redis.set('latest-attempt-' + user_id, current_time)
