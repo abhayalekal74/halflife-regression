@@ -26,11 +26,11 @@ LN2 = math.log(2.)
 REC_MULTIPLIER = 3
 
 category_to_chapter_map = defaultdict(int)
-category_to_chapter_map.update(json.load(open(os.path.join('data', 'category_chapter_map.json'))))
+category_to_chapter_map.update(json.load(open(os.path.join('app', 'category_chapter_map.json'))))
 chapter_to_subject_map = defaultdict(int)
-chapter_to_subject_map.update(json.load(open(os.path.join('data', 'chapter_subject_map.json'))))
+chapter_to_subject_map.update(json.load(open(os.path.join('app', 'chapter_subject_map.json'))))
 
-PRETRAINED_WEIGHTS = dict(chapter=os.path.join('data', 'chapter_weights.json'), subject=os.path.join('data', 'subject_weights.json'))
+PRETRAINED_WEIGHTS = dict(chapter=os.path.join('app', 'chapter_weights.json'), subject=os.path.join('app', 'subject_weights.json'))
 
 WORKERS = 6 
 
@@ -223,6 +223,8 @@ class HLRModel(object):
 			yield dataset[i : i + size]		
 
 
+	"""
+
 	# parallel batch training
 	def train_update_parallel(self, worker, queue, trainset):
 		while True:
@@ -271,6 +273,44 @@ class HLRModel(object):
 						self.weights[entityid] += weight 
 				for entityid, weight in self.weights.items():
 					self.weights[entityid] = weight / WORKERS
+				self.weights[0] = 1.0 # Hard coding weights for subjects and topics not present in training data (they will have 0 as id because we're using defaultdict(int) for category-chapter map and chapter-subject map
+				f.write(json.dumps(self.weights))
+			print ("Weight after epoch {}: {}".format(i, self.weights))
+		return {'loss': train_loss, 'status': STATUS_OK, 'params': params}
+
+	"""
+
+
+	# parallel batch training
+	def train_update_parallel(self, worker, queue, trainset):
+		while True:
+			batch = queue.get()
+			for inst in batch:
+				self.train_update_sequential(inst)
+			queue.task_done()
+		return self.min_loss 
+
+
+	def train_parallel(self, params, trainset, epochs, save_weights):
+		if params:
+			self.lrate = params['lrate']
+			self.hlwt = params['hlwt']
+			self.l2wt = params['l2wt']
+			self.sigma = params['sigma']
+
+		train_loss = float('inf')
+
+		for i in range(epochs):
+			for batch in self.get_batches(trainset):
+				queue.put(batch)	
+			print ("Total batches", queue.qsize())
+			for w in range(WORKERS):
+				worker = Thread(target=self.train_update_parallel, args=(w, queue, trainset))
+				worker.setDaemon(True)
+				worker.start() 
+			with open(save_weights, 'w') as f:
+				print("\n\nEpoch {}: train_loss {}\n".format(i, self.min_loss))
+				
 				self.weights[0] = 1.0 # Hard coding weights for subjects and topics not present in training data (they will have 0 as id because we're using defaultdict(int) for category-chapter map and chapter-subject map
 				f.write(json.dumps(self.weights))
 			print ("Weight after epoch {}: {}".format(i, self.weights))
@@ -360,6 +400,7 @@ def get_model(pretrained_weights_path, mode='one_time_use'):
 	if mode == 'one_time_use':
 		return HLRModel(initial_weights=pretrained_weights)
 	else:
+		global inference_model
 		if inference_model is None:
 			inference_model = HLRModel(initial_weights=pretrained_weights)
 		return inference_model
