@@ -109,20 +109,21 @@ def get_last_practiced(user_id, entity_type):
 
 def write_to_hlr_index(user_id, results, todays_attempts, entity_type):
 	cassandra_cluster, cassandra_session = get_hlr_cassandra_session()
-	batch = BatchStatement()
-	update_row = cassandra_session.prepare("UPDATE {} SET {}=?, hl=?, recall=? WHERE user_id=? and entity_type=? and entity_id=?".format(CASSANDRA_HLR_TABLE, 'last_practiced_today' if todays_attempts else 'last_practiced_before_today'))
-	for row in results:
-		row = row._asdict()
-		batch.add(update_row, (int(row['last_practiced_at']), row['hl'], row['recall'], row['userid'], entity_type, int(row['entityid'])))
-	cassandra_session.execute(batch)
-	if todays_attempts:
-		store_todays_attempts = cassandra_session.prepare("UPDATE {} set last_practiced_at=? WHERE user_id=? and entity_type=? and entity_id=?".format(CASSANDRA_TODAYS_ATTEMPTS))	
-		todays_attempts_batch = BatchStatement()
+	if results:
+		batch = BatchStatement()
+		update_row = cassandra_session.prepare("UPDATE {} SET {}=?, hl=?, recall=? WHERE user_id=? and entity_type=? and entity_id=?".format(CASSANDRA_HLR_TABLE, 'last_practiced_today' if todays_attempts else 'last_practiced_before_today'))
 		for row in results:
 			row = row._asdict()
-			todays_attempts_batch.add(store_todays_attempts, (int(row['last_practiced_at']), row['userid'], entity_type, int(row['entityid'])))
-		cassandra_session.execute(todays_attempts_batch)
-	else:
+			batch.add(update_row, (int(row['last_practiced_at']), row['hl'], row['recall'], row['userid'], entity_type, int(row['entityid'])))
+		cassandra_session.execute(batch)
+		if todays_attempts:
+			store_todays_attempts = cassandra_session.prepare("UPDATE {} set last_practiced_at=? WHERE user_id=? and entity_type=? and entity_id=?".format(CASSANDRA_TODAYS_ATTEMPTS))	
+			todays_attempts_batch = BatchStatement()
+			for row in results:
+				row = row._asdict()
+				todays_attempts_batch.add(store_todays_attempts, (int(row['last_practiced_at']), row['userid'], entity_type, int(row['entityid'])))
+			cassandra_session.execute(todays_attempts_batch)
+	if not todays_attempts:
 		# Set past_attempts_fetched to 1 
 		cassandra_session.execute("UPDATE {} SET past_attempts_fetched=1 WHERE user_id='{}'".format(CASSANDRA_USER_META_TABLE, user_id))
 	

@@ -24,12 +24,13 @@ def get_redis_client():
 @celery.task
 def get_attempts_and_run_inference(user_id, t_start, t_end, todays_attempts):
 	attempts_df = presenter.get_attempts_of_user(user_id, t_start, t_end)
-	if len(attempts_df) > 0:
-		entity_types = ['subject', 'chapter']
-		for entity_type in entity_types:
+	entity_types = ['subject', 'chapter']
+	for entity_type in entity_types:
+		results = []
+		if len(attempts_df) > 0:
 			last_practiced_map = presenter.get_last_practiced(user_id, entity_type) if todays_attempts else None
 			results = model_functions.run_inference(attempts_df, entity_type, last_practiced_map)
-			presenter.write_to_hlr_index(user_id, results, todays_attempts, entity_type)
+		presenter.write_to_hlr_index(user_id, results, todays_attempts, entity_type)
 	print ("get_attempts_and_run_inference: userid: {}, attempts: {}, t_start: {}, t_end: {}".format(user_id, len(attempts_df), t_start, t_end))
 
 
