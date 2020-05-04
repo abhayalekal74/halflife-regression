@@ -90,7 +90,7 @@ def create_table(cassandra_session):
 def past_attempts_fetched(user_id):
 	cassandra_cluster, cassandra_session = get_hlr_cassandra_session()
 	results = cassandra_session.execute("SELECT * FROM {} WHERE user_id='{}'".format(CASSANDRA_USER_META_TABLE, user_id))
-	print (results.current_rows)
+	print ("Past attempts fetched for {}: {}".format(user_id, len(results.current_rows) > 0))
 	return len(results.current_rows) > 0
 
 

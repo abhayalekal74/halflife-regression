@@ -23,15 +23,25 @@ MAX_HL = 90.0 #days
 MIN_WEIGHT = 0.0001
 HYPER_PARAM_OPT_ROUNDS = 50
 LN2 = math.log(2.)
-REC_MULTIPLIER = 3
-
+REC_MULTIPLIER = 2.5 
+# For docker 
 category_to_chapter_map = defaultdict(int)
 category_to_chapter_map.update(json.load(open(os.path.join('app', 'category_chapter_map.json'))))
 chapter_to_subject_map = defaultdict(int)
 chapter_to_subject_map.update(json.load(open(os.path.join('app', 'chapter_subject_map.json'))))
 
 PRETRAINED_WEIGHTS = dict(chapter=os.path.join('app', 'chapter_weights.json'), subject=os.path.join('app', 'subject_weights.json'))
+"""
 
+# For training
+category_to_chapter_map = defaultdict(int)
+category_to_chapter_map.update(json.load(open(os.path.join('.', 'category_chapter_map.json'))))
+chapter_to_subject_map = defaultdict(int)
+chapter_to_subject_map.update(json.load(open(os.path.join('.', 'chapter_subject_map.json'))))
+
+PRETRAINED_WEIGHTS = dict(chapter=os.path.join('.', 'chapter_weights.json'), subject=os.path.join('.', 'subject_weights.json'))
+
+"""
 WORKERS = 6 
 
 Instance = namedtuple('Instance', ['userid', 'recall', 'hl', 'time_delta', 'entityid', 'last_practiced_at', 'feature_vector'])
@@ -145,7 +155,7 @@ class HLRModel(object):
 	# Default lrate=.001, hlwt=.01, l2wt=.1, sigma=1.
 	# Optimized lrate=0.022427189896994885, hlwt=0.0076612918283761695, l2wt=0.18511718781821973, sigma=0.8733141261582174
 	def __init__(self, initial_weights=None, lrate=.001, hlwt=.01, l2wt=.1, sigma=1.): 
-		self.weights = defaultdict(lambda: 1.0)
+		self.weights = defaultdict(float)
 		if initial_weights is not None:
 			self.weights.update(initial_weights)
 		self.fcounts = defaultdict(int)
