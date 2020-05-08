@@ -65,6 +65,7 @@ def check_latest_activity(user_id):
 	redis = get_redis_client()
 	key = 'latest-attempt-' + user_id
 	latest_attempt = redis.get(key)
+	print ("Checking latest activity of {}: {}".format(user_id, latest_attempt))
 	if not latest_attempt or (datetime.now().timestamp() - float(latest_attempt)) >= CHECK_INACTIVITY_AFTER:
 		print ("latest_attempt of {} is {}, running model".format(user_id, latest_attempt))
 		infer_on_todays_attempts(user_id)
@@ -73,7 +74,9 @@ def check_latest_activity(user_id):
 
 @celery.task
 def add_to_queue(user_id):
+	print ("Calculate recall {}".format(user_id))
 	redis = get_redis_client()
 	current_time = datetime.now().timestamp()
 	newly_scheduled_task = check_latest_activity.apply_async(args=[user_id], countdown=CHECK_INACTIVITY_AFTER)
 	redis.set('latest-attempt-' + user_id, current_time)
+	print ("Added to queue {}: at {}".format(user_id, current_time))
