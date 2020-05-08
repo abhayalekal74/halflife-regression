@@ -130,7 +130,7 @@ def get_instances(df, is_training_phase, working_at_subject_level = False, last_
 				prev_session_end = session_group['attempttime'].max()
 				continue
 			time_delta = MAX_HL if not prev_session_end else to_days(session_begin_time - prev_session_end)
-			actual_halflife = MAX_HL if not prev_session_end else halflife_clip(-time_delta / math.log(actual_recall, 2))
+			actual_halflife = MAX_HL if not prev_session_end else halflife_clip(-time_delta / (math.log(actual_recall, 2) + 0.001))
 			prev_session_end = session_group['attempttime'].max()
 
 			feature_vector = list()
