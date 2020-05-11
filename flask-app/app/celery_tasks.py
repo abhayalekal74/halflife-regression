@@ -10,6 +10,7 @@ import redis
 
 
 CHECK_INACTIVITY_AFTER = 60 # If no new request in these many seconds, run model
+REDIS_EXPIRY = 10 * 60
 redisClient = None
 
 
@@ -78,5 +79,5 @@ def add_to_queue(user_id):
 	redis = get_redis_client()
 	current_time = datetime.now().timestamp()
 	newly_scheduled_task = check_latest_activity.apply_async(args=[user_id], countdown=CHECK_INACTIVITY_AFTER)
-	redis.set('latest-attempt-' + user_id, current_time)
+	redis.set('latest-attempt-' + user_id, current_time, ex=REDIS_EXPIRY)
 	print ("Added to queue {}: at {}".format(user_id, current_time))
