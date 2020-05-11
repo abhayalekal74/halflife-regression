@@ -9,8 +9,8 @@ import os
 import redis
 
 
-CHECK_INACTIVITY_AFTER = 60 # If no new request in these many seconds, run model
-REDIS_EXPIRY = 10 * 60
+INFER_ONCE_IN = os.getenv('INFER_ONCE_IN', 3) * 60
+REDIS_EXPIRY = os.getenv('REDIS_EXPIRY', 10) * 60
 redisClient = None
 
 
@@ -47,6 +47,7 @@ def infer_on_last_x_days_attempts(user_id, x = model_functions.MAX_HL, attempts_
 	task = get_attempts_and_run_inference.apply_async(args=[user_id, t_minus_x_in_ms, attempts_up_to, False])
 	
 
+@celery.task
 def infer_on_todays_attempts(user_id):
 	today_start_ms = int(datetime.combine(datetime.today(), time.min).timestamp() * 1000)
 	task_delay = 0
@@ -58,8 +59,7 @@ def infer_on_todays_attempts(user_id):
 	get_attempts_and_run_inference.apply_async(args=[user_id, today_start_ms, int(datetime.now().timestamp() * 1000), True], countdown=task_delay)
 
 
-"""
-If the user has not attempted any questions in x minutes, run the model
+#If the user has not attempted any questions in x minutes, run the model
 """
 @celery.task
 def check_latest_activity(user_id):
@@ -67,17 +67,20 @@ def check_latest_activity(user_id):
 	key = 'latest-attempt-' + user_id
 	latest_attempt = redis.get(key)
 	print ("Checking latest activity of {}: {}".format(user_id, latest_attempt))
-	if not latest_attempt or (datetime.now().timestamp() - float(latest_attempt)) >= CHECK_INACTIVITY_AFTER:
+	if not latest_attempt or (datetime.now().timestamp() - float(latest_attempt)) >= INFER_ONCE_IN:
 		print ("latest_attempt of {} is {}, running model".format(user_id, latest_attempt))
 		infer_on_todays_attempts(user_id)
 		redis.delete(key)
+"""
 
 
-@celery.task
 def add_to_queue(user_id):
-	print ("Calculate recall {}".format(user_id))
 	redis = get_redis_client()
+	next_run_key = 'next-run-' + user_id
+	next_run = redis.get(next_run_key)
 	current_time = datetime.now().timestamp()
-	newly_scheduled_task = check_latest_activity.apply_async(args=[user_id], countdown=CHECK_INACTIVITY_AFTER)
-	redis.set('latest-attempt-' + user_id, current_time, ex=REDIS_EXPIRY)
-	print ("Added to queue {}: at {}".format(user_id, current_time))
+	#redis.set('latest-attempt-' + user_id, current_time, ex=REDIS_EXPIRY)
+	if next_run and current_time <= float(next_run):
+		return
+	infer_on_todays_attempts.apply_async(args=[user_id], countdown=INFER_ONCE_IN)
+	redis.set(next_run_key, current_time + INFER_ONCE_IN, ex=REDIS_EXPIRY)

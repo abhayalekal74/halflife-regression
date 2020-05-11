@@ -25,7 +25,7 @@ def calculate_current_recall(hl, last_practiced_at, original_recall):
 @app.route('/recall/calculate', methods=['POST'])
 def queue_calculate_recall_request():
 	user_id = request.form['userid'] 
-	celery_tasks.add_to_queue.apply_async(args=[user_id])
+	celery_tasks.add_to_queue(user_id)
 	return jsonify(success=True)
 
 
