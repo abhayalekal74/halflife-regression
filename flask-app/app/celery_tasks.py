@@ -35,6 +35,12 @@ def __run_inference(user_id, attempts_df, todays_attempts):
 def get_attempts_and_run_inference(user_id, t_start, today_start):
 	only_todays_attempts = t_start == today_start
 	attempts_df = presenter.get_attempts_of_user(user_id, t_start)
+	print ("get_attempts_and_run_inference: userid: {}, attempts: {}, t_start: {}".format(user_id, len(attempts_df), t_start))
+
+	if len(attempts_df) == 0:
+		if not only_todays_attempts:
+			__run_inference(user_id, attempts_df, False)
+		return
 
 	if not only_todays_attempts:
 		prev_attempts = attempts_df[attempts_df['attempttime'] < today_start]	
@@ -42,8 +48,6 @@ def get_attempts_and_run_inference(user_id, t_start, today_start):
 		__run_inference(user_id, attempts_df[attempts_df['attempttime'] >= today_start], True)
 	else:
 		__run_inference(user_id, attempts_df, True)
-
-	print ("get_attempts_and_run_inference: userid: {}, attempts: {}, t_start: {}".format(user_id, len(attempts_df), t_start))
 
 
 @celery.task
