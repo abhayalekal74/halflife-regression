@@ -9,7 +9,7 @@ import os
 import redis
 
 
-INFER_ONCE_IN = os.getenv('INFER_ONCE_IN', 3) * 60
+INFER_ONCE_IN = os.getenv('INFER_ONCE_IN', 1) * 60
 REDIS_EXPIRY = os.getenv('REDIS_EXPIRY', 10) * 60
 redisClient = None
 
@@ -22,9 +22,7 @@ def get_redis_client():
 	return redisClient
 
 
-@celery.task
-def get_attempts_and_run_inference(user_id, t_start, t_end, todays_attempts):
-	attempts_df = presenter.get_attempts_of_user(user_id, t_start, t_end)
+def __run_inference(user_id, attempts_df, todays_attempts):
 	entity_types = ['subject', 'chapter']
 	for entity_type in entity_types:
 		results = []
@@ -32,31 +30,37 @@ def get_attempts_and_run_inference(user_id, t_start, t_end, todays_attempts):
 			last_practiced_map = presenter.get_last_practiced(user_id, entity_type) if todays_attempts else None
 			results = model_functions.run_inference(attempts_df, entity_type, last_practiced_map)
 		presenter.write_to_hlr_index(user_id, results, todays_attempts, entity_type)
-	print ("get_attempts_and_run_inference: userid: {}, attempts: {}, t_start: {}, t_end: {}".format(user_id, len(attempts_df), t_start, t_end))
+	
+
+def get_attempts_and_run_inference(user_id, t_start, today_start):
+	only_todays_attempts = t_start == today_start
+	attempts_df = presenter.get_attempts_of_user(user_id, t_start)
+
+	if not only_todays_attempts:
+		prev_attempts = attempts_df[attempts_df['attempttime'] < today_start]	
+		__run_inference(user_id, prev_attempts, False)
+		__run_inference(user_id, attempts_df[attempts_df['attempttime'] >= today_start], True)
+	else:
+		__run_inference(user_id, attempts_df, True)
+
+	print ("get_attempts_and_run_inference: userid: {}, attempts: {}, t_start: {}".format(user_id, len(attempts_df), t_start))
 
 
 @celery.task
 def update_last_practiced_before_today():
 	presenter.update_last_practiced_before_today()
-
-
-# x in days
-def infer_on_last_x_days_attempts(user_id, x = model_functions.MAX_HL, attempts_up_to=None):
-	t_minus_x = datetime.now() - timedelta(days=x)
-	t_minus_x_in_ms = int(t_minus_x.timestamp() * 1000)
-	task = get_attempts_and_run_inference.apply_async(args=[user_id, t_minus_x_in_ms, attempts_up_to, False])
 	
 
 @celery.task
-def infer_on_todays_attempts(user_id):
+def infer_on_attempts(user_id):
 	today_start_ms = int(datetime.combine(datetime.today(), time.min).timestamp() * 1000)
-	task_delay = 0
 	if not presenter.past_attempts_fetched(user_id):
-		print ("Getting x days' attempts for {}".format(user_id))
-		infer_on_last_x_days_attempts(user_id, attempts_up_to=today_start_ms)
-		task_delay = 120
-	print ("Getting today's attempts for {}, starting in {} seconds".format(user_id, task_delay))
-	get_attempts_and_run_inference.apply_async(args=[user_id, today_start_ms, int(datetime.now().timestamp() * 1000), True], countdown=task_delay)
+		t_minus_x = datetime.now() - timedelta(days=model_functions.MAX_HL)
+		start_time = int(t_minus_x.timestamp() * 1000)
+	else:
+		start_time = today_start_ms
+	get_attempts_and_run_inference(user_id, start_time, today_start_ms)
+	print ("Getting attempts for {}".format(user_id))
 
 
 #If the user has not attempted any questions in x minutes, run the model
@@ -69,7 +73,7 @@ def check_latest_activity(user_id):
 	print ("Checking latest activity of {}: {}".format(user_id, latest_attempt))
 	if not latest_attempt or (datetime.now().timestamp() - float(latest_attempt)) >= INFER_ONCE_IN:
 		print ("latest_attempt of {} is {}, running model".format(user_id, latest_attempt))
-		infer_on_todays_attempts(user_id)
+		infer_on_attempts(user_id)
 		redis.delete(key)
 """
 
@@ -82,5 +86,5 @@ def add_to_queue(user_id):
 	#redis.set('latest-attempt-' + user_id, current_time, ex=REDIS_EXPIRY)
 	if next_run and current_time <= float(next_run):
 		return
-	infer_on_todays_attempts.apply_async(args=[user_id], countdown=INFER_ONCE_IN)
+	infer_on_attempts.apply_async(args=[user_id], countdown=INFER_ONCE_IN)
 	redis.set(next_run_key, current_time + INFER_ONCE_IN, ex=REDIS_EXPIRY)

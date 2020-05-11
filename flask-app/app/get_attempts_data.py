@@ -152,11 +152,11 @@ def get_entity_for_user(user_id, entity_type, entity_id):
 	return rows[0] if rows else None
 
 
-def get_attempts_of_user(user_id, t_start, t_end, size=100000):
+def get_attempts_of_user(user_id, t_start, size=100000):
 	attempts_df = pd.DataFrame()
 	try:
 		extras = dict(size = size)
-		query = get_attempts_es_index().filter('term', userid=user_id).filter('range', attempttime={'gte': t_start, 'lte': t_end}).extra(**extras).source(["attempttime", "userid", "examid", "id", "iscorrect", "difficulty", "categoryid"])
+		query = get_attempts_es_index().filter('term', userid=user_id).filter('range', attempttime={'gte': t_start}).extra(**extras).source(["attempttime", "userid", "examid", "id", "iscorrect", "difficulty", "categoryid"])
 		res = query.execute()
 		if res:
 			for attempt in res:
