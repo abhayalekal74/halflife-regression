@@ -414,7 +414,6 @@ def get_inference_model(entity_type):
 	if inference_model[entity_type] is None:
 		pretrained_weights = json.load(open(PRETRAINED_WEIGHTS[entity_type], 'r')) 
 		inference_model[entity_type] = HLRModel(initial_weights=pretrained_weights)
-	print ("inference model", inference_model)
 	return inference_model[entity_type]
 
 

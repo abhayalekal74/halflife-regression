@@ -28,7 +28,7 @@ def __run_inference(user_id, attempts_df, todays_attempts):
 	results = None 
 	entity_types = ['subject', 'chapter']
 	if len(attempts_df) > 0:
-		last_practiced_map = presenter.get_last_practiced(user_id, entity_types) if todays_attempts else defaultdict(list) 
+		last_practiced_map = presenter.get_last_practiced(user_id) if todays_attempts else defaultdict(list) 
 		results = model_functions.run_inference(attempts_df, entity_types, last_practiced_map)
 	presenter.write_to_hlr_index(user_id, results, todays_attempts, entity_types)
 	
@@ -64,7 +64,7 @@ def infer_on_attempts(user_id):
 	else:
 		start_time = today_start_ms
 	get_attempts_and_run_inference(user_id, start_time, today_start_ms)
-	print ("Getting attempts for {}".format(user_id))
+	print ("Inference complete for user: {}".format(user_id))
 
 
 #If the user has not attempted any questions in x minutes, run the model
