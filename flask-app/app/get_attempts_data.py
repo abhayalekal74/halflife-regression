@@ -1,3 +1,4 @@
+from collections import defaultdict
 import json
 from tqdm import tqdm
 import sys
@@ -90,42 +91,52 @@ def create_table(cassandra_session):
 def past_attempts_fetched(user_id):
 	cassandra_cluster, cassandra_session = get_hlr_cassandra_session()
 	results = cassandra_session.execute("SELECT * FROM {} WHERE user_id='{}'".format(CASSANDRA_USER_META_TABLE, user_id))
-	print ("Past attempts fetched for {}: {}".format(user_id, len(results.current_rows) > 0))
 	return len(results.current_rows) > 0
 
 
-def get_last_practiced(user_id, entity_type):
+def get_last_practiced(user_id):
 	_, cassandra_session = get_hlr_cassandra_session()
-	query = "SELECT entity_id, last_practiced_before_today from {} where user_id='{}' and entity_type='{}'".format(CASSANDRA_HLR_TABLE, user_id, entity_type)
+	query = "SELECT entity_id, entity_type, last_practiced_before_today from {} where user_id='{}'".format(CASSANDRA_HLR_TABLE, user_id)
 	results = cassandra_session.execute(query)
 	if len(results.current_rows) > 0:
-		data = dict()
+		data = defaultdict(lambda: dict())
 		for row in results:
 			if row.last_practiced_before_today:
-				data[int(row.entity_id)] = int(row.last_practiced_before_today)
+				data[row.entity_type][int(row.entity_id)] = int(row.last_practiced_before_today)
 		return data
-	return None
+	return defaultdict(lambda: None)
 
 
-def write_to_hlr_index(user_id, results, todays_attempts, entity_type):
+def write_to_hlr_index(user_id, results, todays_attempts, entity_types):
 	cassandra_cluster, cassandra_session = get_hlr_cassandra_session()
-	if results:
-		batch = BatchStatement()
-		update_row = cassandra_session.prepare("UPDATE {} SET {}=?, hl=?, recall=? WHERE user_id=? and entity_type=? and entity_id=?".format(CASSANDRA_HLR_TABLE, 'last_practiced_today' if todays_attempts else 'last_practiced_before_today'))
-		for row in results:
-			row = row._asdict()
-			batch.add(update_row, (int(row['last_practiced_at']), row['hl'], row['recall'], row['userid'], entity_type, int(row['entityid'])))
-		cassandra_session.execute(batch)
-		if todays_attempts:
-			store_todays_attempts = cassandra_session.prepare("UPDATE {} set last_practiced_at=? WHERE user_id=? and entity_type=? and entity_id=?".format(CASSANDRA_TODAYS_ATTEMPTS))	
-			todays_attempts_batch = BatchStatement()
-			for row in results:
-				row = row._asdict()
-				todays_attempts_batch.add(store_todays_attempts, (int(row['last_practiced_at']), row['userid'], entity_type, int(row['entityid'])))
-			cassandra_session.execute(todays_attempts_batch)
+
 	if not todays_attempts:
 		# Set past_attempts_fetched to 1 
 		cassandra_session.execute("UPDATE {} SET past_attempts_fetched=1 WHERE user_id='{}'".format(CASSANDRA_USER_META_TABLE, user_id))
+
+	if not results:
+		return 
+
+	batch = BatchStatement()
+	update_row = cassandra_session.prepare("UPDATE {} SET {}=?, hl=?, recall=? WHERE user_id=? and entity_type=? and entity_id=?".format(CASSANDRA_HLR_TABLE, 'last_practiced_today' if todays_attempts else 'last_practiced_before_today'))
+
+	if todays_attempts:
+		store_todays_attempts = cassandra_session.prepare("UPDATE {} set last_practiced_at=? WHERE user_id=? and entity_type=? and entity_id=?".format(CASSANDRA_TODAYS_ATTEMPTS))	
+		todays_attempts_batch = BatchStatement()
+
+	for entity_type in entity_types:
+		if results[entity_type]:
+			for row in results[entity_type]:
+				row = row._asdict()
+				batch.add(update_row, (int(row['last_practiced_at']), row['hl'], row['recall'], row['userid'], entity_type, int(row['entityid'])))
+
+				if todays_attempts:
+					todays_attempts_batch.add(store_todays_attempts, (int(row['last_practiced_at']), row['userid'], entity_type, int(row['entityid'])))
+
+	cassandra_session.execute(batch)
+
+	if todays_attempts:
+		cassandra_session.execute(todays_attempts_batch)
 	
 
 def update_last_practiced_before_today():

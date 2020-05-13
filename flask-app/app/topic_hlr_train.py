@@ -47,7 +47,7 @@ WORKERS = 6
 Instance = namedtuple('Instance', ['userid', 'recall', 'hl', 'time_delta', 'entityid', 'last_practiced_at', 'feature_vector'])
 Result = namedtuple('Result', ['userid', 'entityid', 'last_practiced_at', 'recall', 'hl'])
 
-inference_model = None
+inference_model = defaultdict(lambda: None) 
 
 hyper_param_space = {
 						'lrate': hp.loguniform('lrate', np.log(.0001), np.log(.2)), 
@@ -393,40 +393,43 @@ def parse_args():
 	return args
 
 
-def get_final_df(df, convert_to_chapters, working_at_subject_level=False):
+def get_final_df(df, convert_to_chapters):
 	df['date'] = df.apply(lambda row: dt.fromtimestamp(row['attempttime']/1000).date(), axis=1) 
 	if convert_to_chapters:
 		df['chapterid'] = df.apply(lambda row: category_to_chapter_map[str(int(row['categoryid']))], axis=1)
 		df.drop(columns=['categoryid'])
-	if working_at_subject_level:
-		df['subjectid'] = df.apply(lambda row: chapter_to_subject_map[str(int(row['chapterid']))], axis=1)
+	df['subjectid'] = df.apply(lambda row: chapter_to_subject_map[str(int(row['chapterid']))], axis=1)
 	df.dropna()
 	df = df.sort_values(by=['attempttime'], ascending=True)
 	return df	
 
 
-def get_model(pretrained_weights_path, mode='one_time_use'):
+def get_training_model(pretrained_weights_path):
 	pretrained_weights = json.load(open(pretrained_weights_path, 'r')) if pretrained_weights_path else dict() 
-	if mode == 'one_time_use':
-		return HLRModel(initial_weights=pretrained_weights)
-	else:
-		global inference_model
-		if inference_model is None:
-			inference_model = HLRModel(initial_weights=pretrained_weights)
-		return inference_model
+	return HLRModel(initial_weights=pretrained_weights)
+	
+
+def get_inference_model(entity_type):
+	global inference_model
+	if inference_model[entity_type] is None:
+		pretrained_weights = json.load(open(PRETRAINED_WEIGHTS[entity_type], 'r')) 
+		inference_model[entity_type] = HLRModel(initial_weights=pretrained_weights)
+	print ("inference model", inference_model)
+	return inference_model[entity_type]
 
 
 # Only method that is to be called from other classes for prediction on raw_df
-def run_inference(raw_df, entity_type, last_practiced_map, convert_to_chapters=True):
-	working_at_subject_level = entity_type == 'subject'
-	df = get_final_df(raw_df, convert_to_chapters, working_at_subject_level=working_at_subject_level)
-	model = get_model(PRETRAINED_WEIGHTS[entity_type], mode='multi_use')
-	_, instances = get_instances(df, False, working_at_subject_level=working_at_subject_level, last_practiced_map=last_practiced_map)
-	results = list()
-	for inst in instances:
-		_, hl = model.predict(inst)
-		hl_in_practice = get_hl_in_practice(inst.recall, hl) 
-		results.append(Result(inst.userid, inst.entityid, inst.last_practiced_at, inst.recall, hl_in_practice))
+def run_inference(raw_df, entity_types, last_practiced_map, convert_to_chapters=True):
+	df = get_final_df(raw_df, convert_to_chapters)
+	results = defaultdict(list)
+	for entity_type in entity_types:
+		working_at_subject_level = entity_type == 'subject'
+		model = get_inference_model(entity_type)
+		_, instances = get_instances(df, False, working_at_subject_level=working_at_subject_level, last_practiced_map=last_practiced_map[entity_type])
+		for inst in instances:
+			_, hl = model.predict(inst)
+			hl_in_practice = get_hl_in_practice(inst.recall, hl) 
+			results[entity_type].append(Result(inst.userid, inst.entityid, inst.last_practiced_at, inst.recall, hl_in_practice))
 	return results
 
 
@@ -442,11 +445,11 @@ if __name__=='__main__':
 	for attempts_file in os.listdir(args.attempts_folder):
 
 		print ("Current file:", attempts_file)
-		df = get_final_df(pd.read_csv(os.path.join(args.attempts_folder, attempts_file)), args.convert_to_chapters, working_at_subject_level=args.subject_as_entity)
+		df = get_final_df(pd.read_csv(os.path.join(args.attempts_folder, attempts_file)), args.convert_to_chapters)
 
 		queue = Queue()
 		
-		model = get_model(args.pretrained_weights if use_pretrained_weights else args.save_weights_path)
+		model = get_training_model(args.pretrained_weights if use_pretrained_weights else args.save_weights_path)
 		use_pretrained_weights = args.pred # If running prediction, keep on using pretrained weights, otherwise use the updated weights
 
 		trainset, testset = get_instances(df, is_training_phase, working_at_subject_level=args.subject_as_entity)

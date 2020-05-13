@@ -7,10 +7,12 @@ from celery.task.control import revoke
 from celery.result import AsyncResult
 import os
 import redis
+from collections import defaultdict
 
 
-INFER_ONCE_IN = os.getenv('INFER_ONCE_IN', 1) * 60
-REDIS_EXPIRY = os.getenv('REDIS_EXPIRY', 10) * 60
+# Times are in seconds
+RUN_ONCE_IN = int(os.getenv('RUN_ONCE_IN', 1)) * 60
+REDIS_EXPIRY = int(os.getenv('REDIS_EXPIRY', 10)) * 60
 redisClient = None
 
 
@@ -23,19 +25,17 @@ def get_redis_client():
 
 
 def __run_inference(user_id, attempts_df, todays_attempts):
+	results = None 
 	entity_types = ['subject', 'chapter']
-	for entity_type in entity_types:
-		results = []
-		if len(attempts_df) > 0:
-			last_practiced_map = presenter.get_last_practiced(user_id, entity_type) if todays_attempts else None
-			results = model_functions.run_inference(attempts_df, entity_type, last_practiced_map)
-		presenter.write_to_hlr_index(user_id, results, todays_attempts, entity_type)
+	if len(attempts_df) > 0:
+		last_practiced_map = presenter.get_last_practiced(user_id, entity_types) if todays_attempts else defaultdict(list) 
+		results = model_functions.run_inference(attempts_df, entity_types, last_practiced_map)
+	presenter.write_to_hlr_index(user_id, results, todays_attempts, entity_types)
 	
 
 def get_attempts_and_run_inference(user_id, t_start, today_start):
 	only_todays_attempts = t_start == today_start
 	attempts_df = presenter.get_attempts_of_user(user_id, t_start)
-	print ("get_attempts_and_run_inference: userid: {}, attempts: {}, t_start: {}".format(user_id, len(attempts_df), t_start))
 
 	if len(attempts_df) == 0:
 		if not only_todays_attempts:
@@ -68,18 +68,16 @@ def infer_on_attempts(user_id):
 
 
 #If the user has not attempted any questions in x minutes, run the model
-"""
 @celery.task
 def check_latest_activity(user_id):
 	redis = get_redis_client()
 	key = 'latest-attempt-' + user_id
 	latest_attempt = redis.get(key)
-	print ("Checking latest activity of {}: {}".format(user_id, latest_attempt))
-	if not latest_attempt or (datetime.now().timestamp() - float(latest_attempt)) >= INFER_ONCE_IN:
-		print ("latest_attempt of {} is {}, running model".format(user_id, latest_attempt))
+	if not latest_attempt or (datetime.now().timestamp() - float(latest_attempt)) >= RUN_ONCE_IN:
 		infer_on_attempts(user_id)
 		redis.delete(key)
-"""
+	else:
+		add_to_queue(user_id)
 
 
 def add_to_queue(user_id):
@@ -87,8 +85,8 @@ def add_to_queue(user_id):
 	next_run_key = 'next-run-' + user_id
 	next_run = redis.get(next_run_key)
 	current_time = datetime.now().timestamp()
-	#redis.set('latest-attempt-' + user_id, current_time, ex=REDIS_EXPIRY)
+	redis.set('latest-attempt-' + user_id, current_time, ex=REDIS_EXPIRY)
 	if next_run and current_time <= float(next_run):
 		return
-	infer_on_attempts.apply_async(args=[user_id], countdown=INFER_ONCE_IN)
-	redis.set(next_run_key, current_time + INFER_ONCE_IN, ex=REDIS_EXPIRY)
+	check_latest_activity.apply_async(args=[user_id], countdown=RUN_ONCE_IN)
+	redis.set(next_run_key, current_time + RUN_ONCE_IN, ex=REDIS_EXPIRY)
