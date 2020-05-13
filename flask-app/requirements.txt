@@ -10,3 +10,4 @@ elasticsearch==7.5.1
 elasticsearch_dsl==7.1.0
 celery==4.4.0
 redis==3.4.1
+kafka-python==1.4.7

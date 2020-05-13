@@ -1,8 +1,9 @@
+import sys
 from flask import request, jsonify
 from app import app
 from app import get_attempts_data as presenter
 from app import topic_hlr_train as model_functions
-from app import celery_tasks
+from app import kafka_producer 
 from datetime import datetime
 import os
 from decimal import Decimal
@@ -25,7 +26,7 @@ def calculate_current_recall(hl, last_practiced_at, original_recall):
 @app.route('/recall/calculate', methods=['POST'])
 def queue_calculate_recall_request():
 	user_id = request.form['userid'] 
-	celery_tasks.add_to_queue(user_id)
+	kafka_producer.publish(user_id)
 	return jsonify(success=True)
 
 
