@@ -25,5 +25,4 @@ def get_producer():
 
 
 def publish(userid):
-	print ("Publishing {}".format(userid), file=sys.stdout)
 	get_producer().send(kafka_config.TOPIC, key='key', value=dict(userid=userid))

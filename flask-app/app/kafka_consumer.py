@@ -44,7 +44,6 @@ def infer_on_attempts(user_id):
 	else:
 		start_time = today_start_ms
 	get_attempts_and_run_inference(user_id, start_time, today_start_ms)
-	print ("Inference complete for user: {}".format(user_id))
 
 
 class Consumer(Process):
@@ -63,7 +62,6 @@ class Consumer(Process):
 		consumer.subscribe([kafka_config.TOPIC])
 
 		for msg in consumer:
-			print ("Received message {} (consumer {})".format(msg, self.id))
 			infer_on_attempts(msg.value['userid'])
 			tp = TopicPartition(msg.topic, msg.partition)
 			offsets = {tp: OffsetAndMetadata(msg.offset, None)}
@@ -71,7 +69,6 @@ class Consumer(Process):
 
 
 def spawn_consumers():
-	print ("Starting consumers")
 	for idx in range(kafka_config.CONSUMERS):
 		consumer = Consumer(idx)
 		consumer.start()
