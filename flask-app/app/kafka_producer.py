@@ -10,12 +10,10 @@ producer = None
 def get_producer():
 	global producer
 	if producer is None:
-		partitioner = RoundRobinPartitioner(partitions=[
-			TopicPartition(topic=kafka_config.TOPIC, partition=0),
-			TopicPartition(topic=kafka_config.TOPIC, partition=1),
-			TopicPartition(topic=kafka_config.TOPIC, partition=2),
-			TopicPartition(topic=kafka_config.TOPIC, partition=3)
-		])
+		partitions = []
+		for idx in range(kafka_config.CONSUMERS):
+			partitions.append(TopicPartition(topic=kafka_config.TOPIC, partition=idx))
+		partitioner = RoundRobinPartitioner(partitions=partitions)
 
 		producer = KafkaProducer(bootstrap_servers=[kafka_config.HOST],
 			key_serializer=lambda m: m.encode('utf8'),

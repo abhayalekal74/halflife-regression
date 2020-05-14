@@ -1,3 +1,4 @@
+import sys
 from app import app
 from app import get_attempts_data as presenter
 from app import topic_hlr_train as model_functions
@@ -63,6 +64,7 @@ class Consumer(Process):
 
 		for msg in consumer:
 			infer_on_attempts(msg.value['userid'])
+			print ("Consumer {}: {}".format(self.id, msg), file=sys.stdout)
 			tp = TopicPartition(msg.topic, msg.partition)
 			offsets = {tp: OffsetAndMetadata(msg.offset, None)}
 			consumer.commit(offsets=offsets)
