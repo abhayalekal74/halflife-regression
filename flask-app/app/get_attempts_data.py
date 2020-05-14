@@ -23,6 +23,8 @@ CASSANDRA_TODAYS_ATTEMPTS = "today_attempts"
 CASSANDRA_USER = "cassandra"
 CASSANDRA_PASS = "cassandra"
 
+BATCH_LIMIT = 50
+
 attempts_es_index = None
 cassandra_cluster = None
 cassandra_session = None
@@ -142,12 +144,20 @@ def write_to_hlr_index(user_id, results, todays_attempts, entity_types):
 def update_last_practiced_before_today():
 	cassandra_cluster, cassandra_session = get_hlr_cassandra_session()
 	results = cassandra_session.execute("SELECT * FROM {}".format(CASSANDRA_TODAYS_ATTEMPTS))
-	print ("Updating last practiced time in {} rows".format(len(results.current_rows)))
 	batch = BatchStatement()
 	update_row = cassandra_session.prepare("UPDATE {} SET last_practiced_before_today=?, last_practiced_today=? WHERE user_id=? and entity_type=? and entity_id=?".format(CASSANDRA_HLR_TABLE))
+
+	count = 0	
 	for result in results:
 		batch.add(update_row, (result.last_practiced_at, 0, result.user_id, result.entity_type, result.entity_id))
-	cassandra_session.execute(batch)
+		count += 1
+		if count >= BATCH_LIMIT:
+			cassandra_session.execute(batch)
+			batch = BatchStatement()
+			count = 0
+	if count:
+		cassandra_session.execute(batch)
+	
 	print ("Truncating {}".format(CASSANDRA_TODAYS_ATTEMPTS))
 	cassandra_session.execute('TRUNCATE {}'.format(CASSANDRA_TODAYS_ATTEMPTS))
 

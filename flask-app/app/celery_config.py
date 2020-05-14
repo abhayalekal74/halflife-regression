@@ -19,9 +19,9 @@ celery.conf.broker_transport_options = {
 	'interval_max': 0.2,
 }
 celery.conf.beat_schedule = {
-    # Run every midnight 
+    # IST 3AM
     'every-midnight': {
         'task': 'app.celery_tasks.update_last_practiced_before_today',
-        'schedule': crontab(hour=0, minute=0)
+        'schedule': crontab(hour=21, minute=30)
     },
 }
