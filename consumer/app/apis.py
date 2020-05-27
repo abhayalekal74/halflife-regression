@@ -3,7 +3,6 @@ from flask import request, jsonify
 from app import app
 from app import get_attempts_data as presenter
 from app import topic_hlr_train as model_functions
-from app import kafka_producer 
 from datetime import datetime
 import os
 from decimal import Decimal
@@ -21,13 +20,6 @@ def calculate_current_recall(hl, last_practiced_at, original_recall):
 	# Multiplying by original recall because the recall calculated with hl and last_practiced_at is for original_recall of 1. But since we don't reset the recall to 1 after every session, we have to multiply it by original recall.
 	current_recall = Decimal(model_functions.get_recall(hl, lag_in_days) * original_recall)
 	return float(round(current_recall, 3))
-
-
-@app.route('/recall/calculate', methods=['POST'])
-def queue_calculate_recall_request():
-	user_id = request.form['userid'] 
-	kafka_producer.publish(user_id)
-	return jsonify(success=True)
 
 
 def get_latest_attempt_time(t1, t2):

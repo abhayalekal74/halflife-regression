@@ -11,7 +11,7 @@ def get_producer():
 	global producer
 	if producer is None:
 		partitions = []
-		for idx in range(kafka_config.CONSUMERS):
+		for idx in range(kafka_config.PARTITIONS):
 			partitions.append(TopicPartition(topic=kafka_config.TOPIC, partition=idx))
 		partitioner = RoundRobinPartitioner(partitions=partitions)
 

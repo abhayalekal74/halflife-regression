@@ -8,7 +8,6 @@ from kafka import KafkaConsumer
 from kafka.structs import OffsetAndMetadata, TopicPartition
 from datetime import datetime, time, timedelta
 from collections import defaultdict
-from multiprocessing import Process
 
 
 def __run_inference(user_id, attempts_df, todays_attempts):
@@ -47,30 +46,17 @@ def infer_on_attempts(user_id):
 	get_attempts_and_run_inference(user_id, start_time, today_start_ms)
 
 
-class Consumer(Process):
-	def __init__(self, consumer_id):
-		super(Process, self).__init__()
-		self.id = consumer_id
+consumer = KafkaConsumer(bootstrap_servers=[kafka_config.HOST],
+				key_deserializer=lambda m: m.decode('utf8'),
+				value_deserializer=lambda m: json.loads(m.decode('utf8')),
+				auto_offset_reset="latest",
+				group_id=kafka_config.GROUP_ID)
 
+consumer.subscribe([kafka_config.TOPIC])
 
-	def run(self):
-		consumer = KafkaConsumer(bootstrap_servers=[kafka_config.HOST],
-						key_deserializer=lambda m: m.decode('utf8'),
-						value_deserializer=lambda m: json.loads(m.decode('utf8')),
-						auto_offset_reset="latest",
-						group_id='1')
-
-		consumer.subscribe([kafka_config.TOPIC])
-
-		for msg in consumer:
-			infer_on_attempts(msg.value['userid'])
-			print ("Consumer {}: {}".format(self.id, msg), file=sys.stdout)
-			tp = TopicPartition(msg.topic, msg.partition)
-			offsets = {tp: OffsetAndMetadata(msg.offset, None)}
-			consumer.commit(offsets=offsets)
-
-
-def spawn_consumers():
-	for idx in range(kafka_config.CONSUMERS):
-		consumer = Consumer(idx)
-		consumer.start()
+for msg in consumer:
+	infer_on_attempts(msg.value['userid'])
+	print ("Consumer: {}".format(msg), file=sys.stdout)
+	tp = TopicPartition(msg.topic, msg.partition)
+	offsets = {tp: OffsetAndMetadata(msg.offset, None)}
+	consumer.commit(offsets=offsets)
