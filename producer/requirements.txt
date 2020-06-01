@@ -1,2 +1,5 @@
 flask==1.1.1
 kafka-python==1.4.7
+cassandra-driver==3.21.0
+celery==4.4.0
+redis==3.4.1

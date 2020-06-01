@@ -46,17 +46,19 @@ def infer_on_attempts(user_id):
 	get_attempts_and_run_inference(user_id, start_time, today_start_ms)
 
 
-consumer = KafkaConsumer(bootstrap_servers=[kafka_config.HOST],
-				key_deserializer=lambda m: m.decode('utf8'),
-				value_deserializer=lambda m: json.loads(m.decode('utf8')),
-				auto_offset_reset="latest",
-				group_id=kafka_config.GROUP_ID)
+def start_consumer():
+	print ("Starting consumer...")
+	consumer = KafkaConsumer(bootstrap_servers=[kafka_config.HOST],
+					key_deserializer=lambda m: m.decode('utf8'),
+					value_deserializer=lambda m: json.loads(m.decode('utf8')),
+					auto_offset_reset="latest",
+					group_id=kafka_config.GROUP_ID)
 
-consumer.subscribe([kafka_config.TOPIC])
+	consumer.subscribe([kafka_config.TOPIC])
 
-for msg in consumer:
-	infer_on_attempts(msg.value['userid'])
-	print ("Consumer: {}".format(msg), file=sys.stdout)
-	tp = TopicPartition(msg.topic, msg.partition)
-	offsets = {tp: OffsetAndMetadata(msg.offset, None)}
-	consumer.commit(offsets=offsets)
+	for msg in consumer:
+		infer_on_attempts(msg.value['userid'])
+		print ("Consumer: {}".format(msg), file=sys.stdout)
+		tp = TopicPartition(msg.topic, msg.partition)
+		offsets = {tp: OffsetAndMetadata(msg.offset, None)}
+		consumer.commit(offsets=offsets)

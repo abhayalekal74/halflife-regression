@@ -1,6 +1,6 @@
 FROM python:3.7 
 
-RUN apt-get update && apt-get install -y libatlas-base-dev gfortran 
+RUN apt-get update && apt-get install -y libatlas-base-dev gfortran supervisor 
 
 RUN adduser --system --group hlr
 
@@ -14,4 +14,4 @@ WORKDIR /home/hlr/
 
 COPY . . 
 
-CMD ["/usr/bin/python3", "run.py"]
+CMD ["/usr/bin/supervisord"]

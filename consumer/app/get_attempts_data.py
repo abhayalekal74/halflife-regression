@@ -50,10 +50,6 @@ def get_hlr_cassandra_session():
 	return cassandra_cluster, cassandra_session
 
 
-def kill_cassandra_cassandra_cluster(cassandra_cluster):
-	cassandra_cluster.shutdown()
-
-
 def create_keyspace(cassandra_session):
 	cassandra_session.execute("""
 		CREATE KEYSPACE IF NOT EXISTS hlr WITH replication = {'class':'SimpleStrategy', 'replication_factor' : 3};
@@ -140,27 +136,6 @@ def write_to_hlr_index(user_id, results, todays_attempts, entity_types):
 	if todays_attempts:
 		cassandra_session.execute(todays_attempts_batch)
 	
-
-def update_last_practiced_before_today():
-	cassandra_cluster, cassandra_session = get_hlr_cassandra_session()
-	results = cassandra_session.execute("SELECT * FROM {}".format(CASSANDRA_TODAYS_ATTEMPTS))
-	batch = BatchStatement()
-	update_row = cassandra_session.prepare("UPDATE {} SET last_practiced_before_today=?, last_practiced_today=? WHERE user_id=? and entity_type=? and entity_id=?".format(CASSANDRA_HLR_TABLE))
-
-	count = 0	
-	for result in results:
-		batch.add(update_row, (result.last_practiced_at, 0, result.user_id, result.entity_type, result.entity_id))
-		count += 1
-		if count >= BATCH_LIMIT:
-			cassandra_session.execute(batch)
-			batch = BatchStatement()
-			count = 0
-	if count:
-		cassandra_session.execute(batch)
-	
-	print ("Truncating {}".format(CASSANDRA_TODAYS_ATTEMPTS))
-	cassandra_session.execute('TRUNCATE {}'.format(CASSANDRA_TODAYS_ATTEMPTS))
-
 
 def get_all_entities_for_user(user_id, entity_type):
 	cassandra_cluster, cassandra_session = get_hlr_cassandra_session()

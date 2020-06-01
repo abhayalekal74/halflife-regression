@@ -1,5 +1,5 @@
 from app import app
-from app import get_attempts_data as presenter
+from app import presenter
 from app.celery_config import celery
 
 
