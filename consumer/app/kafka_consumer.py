@@ -52,6 +52,7 @@ def start_consumer():
 					key_deserializer=lambda m: m.decode('utf8'),
 					value_deserializer=lambda m: json.loads(m.decode('utf8')),
 					auto_offset_reset="latest",
+					max_poll_records=50,
 					group_id=kafka_config.GROUP_ID)
 
 	consumer.subscribe([kafka_config.TOPIC])
@@ -61,4 +62,7 @@ def start_consumer():
 		print ("Consumer: {}".format(msg), file=sys.stdout)
 		tp = TopicPartition(msg.topic, msg.partition)
 		offsets = {tp: OffsetAndMetadata(msg.offset, None)}
-		consumer.commit(offsets=offsets)
+		try:
+			consumer.commit(offsets=offsets)
+		except Exception as e:
+			print (e)
